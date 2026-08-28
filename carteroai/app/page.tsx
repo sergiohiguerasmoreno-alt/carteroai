@@ -76,8 +76,7 @@ export default function LandingPage() {
           <p className="label-sm mb-3 text-ink-400">El proceso</p>
           <ol className="space-y-6">
             {[
-              ['Sube tu PDF', 'Arrastra el extracto de tu cartera o selecciónalo desde tu móvil u ordenador.'],
-              ['Confirma tus posiciones', 'Revisa y corrige lo que hayamos podido leer mal — tú tienes la última palabra.'],
+              ['Sube tu PDF', 'Arrastra el extracto de tu cartera o selecciónalo desde tu móvil u ordenador. Leemos las posiciones automáticamente.'],
               ['Responde unas preguntas breves', 'Objetivo, horizonte, riesgo y liquidez — solo lo necesario, nada de formularios interminables.'],
               ['Recibe tu informe', 'Composición, diversificación, riesgo, rentabilidad y recomendaciones justificadas una a una.'],
             ].map(([title, body], i) => (

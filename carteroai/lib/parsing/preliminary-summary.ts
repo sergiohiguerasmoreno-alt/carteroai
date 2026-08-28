@@ -35,8 +35,8 @@ export function buildPreliminarySummary(portfolio: Portfolio): PreliminarySummar
   const reliableEnough = positions.length > 0 && averageConfidence !== 'low';
 
   const reliabilityNote = reliableEnough
-    ? 'La extracción parece suficientemente fiable. Aun así, confirma cada posición en el siguiente paso.'
-    : 'La extracción tiene baja confianza global. Revisa y corrige cuidadosamente cada posición antes de continuar: un análisis solo es tan bueno como los datos de partida.';
+    ? 'La extracción parece suficientemente fiable.'
+    : 'La extracción tiene baja confianza global: es posible que alguna posición no se haya leído con exactitud. Esto se indicará en el informe final.';
 
   return {
     positionCount: positions.length,

@@ -70,16 +70,20 @@ PDF ──► lib/parsing        Extracción heurística de posiciones (código,
    heurísticas (`lib/parsing/position-extractor.ts`) para detectar posiciones, ISIN,
    ticker, cantidad, precio, divisa y peso. Todo en memoria; el archivo nunca se
    escribe a disco.
-2. El usuario **confirma o corrige** cada posición (paso obligatorio: los PDF pueden
-   contener errores de lectura).
-3. El usuario responde un cuestionario corto y adaptativo (`lib/questions`) sobre
+   Las posiciones extraídas se dan por buenas automáticamente: no hay una pantalla de
+   confirmación manual. Si la extracción no identifica ninguna posición usable, se
+   informa con un error y se pide otro archivo en vez de continuar con una cartera
+   vacía; si algunas posiciones tienen confianza baja, ese aviso viaja con el análisis
+   y aparece en el informe final (sección "Fuentes utilizadas" → "Limitaciones de
+   datos"), para que el usuario las pueda verificar sin necesidad de un paso previo.
+2. El usuario responde un cuestionario corto y adaptativo (`lib/questions`) sobre
    objetivo, horizonte, riesgo, liquidez, aportaciones y preferencias.
-4. `POST /api/analyze` recibe la cartera confirmada y el perfil, y ejecuta el pipeline
+3. `POST /api/analyze` recibe la cartera y el perfil, y ejecuta el pipeline
    completo: tipos de cambio → valoración → composición → diversificación → riesgo →
    rentabilidad/benchmark → coste → score → motor de reglas → escenarios → resumen
    ejecutivo (IA con salvaguarda anti-alucinación). Devuelve un `PortfolioAnalysis`
    completo. **No se persiste nada en el servidor.**
-5. `POST /api/report/pdf` recibe ese mismo análisis ya calculado y lo maqueta en un PDF
+4. `POST /api/report/pdf` recibe ese mismo análisis ya calculado y lo maqueta en un PDF
    descargable (`@react-pdf/renderer`) — no repite ningún cálculo.
 
 La aplicación es **sin estado en el servidor**: toda la cartera, respuestas y análisis
@@ -108,14 +112,14 @@ añadir persistencia en el futuro sin rehacer el resto del sistema.
 ```
 app/
   page.tsx                Landing (pantalla 1)
-  analizar/page.tsx        Wizard cliente: sube → confirma → preguntas → informe
+  analizar/page.tsx        Wizard cliente: sube → preguntas → email → informe
   legal/page.tsx           Aviso legal y privacidad
   api/
     upload/route.ts        Extracción de PDF (sin persistencia)
     analyze/route.ts        Orquesta el análisis completo
     report/pdf/route.ts     Genera el PDF descargable
 components/
-  flow/                    Pantallas del asistente (subida, confirmación, preguntas…)
+  flow/                    Pantallas del asistente (subida, preguntas, email…)
   report/                  Secciones del informe en pantalla
   charts/                  Gráficos (paleta validada, sin librería externa de temas)
 lib/
@@ -263,11 +267,15 @@ y adaptarse formalmente con asesoría jurídica — este proyecto no lo sustituy
 
 ## Limitaciones conocidas
 
-- **Extracción de PDF por heurísticas.** Funciona bien con extractos tabulares
-  (nombre, ISIN, cantidad, precio, valor, peso), pero es heurística: nombres de producto
-  que contienen números (p. ej. "S&P 500") pueden truncarse, y PDFs en prosa o escaneados
-  como imagen requieren corrección o introducción manual. Por eso la pantalla de
-  confirmación es un paso obligatorio, no opcional.
+- **Extracción de PDF por heurísticas, sin confirmación manual.** Funciona bien con
+  extractos tabulares (nombre, ISIN, cantidad, precio, valor, peso), pero es
+  heurística: nombres de producto que contienen números (p. ej. "S&P 500") pueden
+  truncarse. Las posiciones extraídas se usan directamente, sin que el usuario las
+  revise antes; las que se han leído con confianza baja se señalan en la sección
+  "Limitaciones de datos" del informe final para que se puedan verificar contra el
+  extracto original. Un PDF en prosa o escaneado como imagen, del que no se pueda
+  extraer ninguna posición, se rechaza con un error pidiendo otro archivo — no hay
+  forma de introducir posiciones manualmente en esta versión.
 - **Resolución de ticker desde ISIN** solo funciona con `FMP_API_KEY` configurada; sin
   ella, una posición identificada solo por ISIN (típico de fondos/ETFs UCITS europeos)
   no tendrá datos de mercado externos, y el informe lo indica explícitamente.

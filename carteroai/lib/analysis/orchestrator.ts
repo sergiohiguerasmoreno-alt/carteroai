@@ -113,7 +113,20 @@ export async function analyzePortfolio(portfolio: ConfirmedPortfolio, profile: I
     { provider: 'Frankfurter (tipos de referencia BCE)', retrievedAt: new Date().toISOString(), fieldsUsed: ['tipos de cambio'] },
     benchmarkHistory?.source,
   ]);
+  // Las posiciones se extraen automáticamente del PDF y no pasan por una
+  // revisión manual del usuario, así que cualquier duda sobre la lectura
+  // del PDF debe quedar reflejada aquí — es la única vía por la que el
+  // usuario puede enterarse de que algo se ha podido leer mal.
+  const lowConfidenceNames = portfolio.positions.filter((p) => p.extractionConfidence === 'low').map((p) => p.name);
+  const extractionNotes = [
+    ...portfolio.extractionWarnings,
+    lowConfidenceNames.length > 0
+      ? `Estas posiciones se han leído del PDF con confianza baja y conviene verificarlas con tu extracto original: ${lowConfidenceNames.join(', ')}.`
+      : undefined,
+  ];
+
   const dataLimitations = collectDataLimitations(bundleList, [
+    ...extractionNotes,
     valuedPortfolio.unvaluedCount > 0 ? `${valuedPortfolio.unvaluedCount} posición(es) no se han podido valorar por falta de precio, cantidad o tipo de cambio.` : undefined,
     returns.dataCoverageWarning,
     cost.weightedTerPct === undefined ? cost.note : undefined,

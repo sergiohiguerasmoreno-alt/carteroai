@@ -25,7 +25,7 @@ export interface Position {
   /** Texto tal cual apareció en el PDF, para trazabilidad y depuración. */
   rawLine?: string;
 
-  /** Nombre del activo, editable por el usuario en la pantalla de confirmación. */
+  /** Nombre del activo, tal y como se ha extraído (o corregido) del PDF. */
   name: string;
 
   ticker?: string;

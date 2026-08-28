@@ -202,14 +202,14 @@ export function extractPositionsFromText(text: string, sourceFileName: string): 
   const warnings: string[] = [];
   if (positions.length === 0) {
     warnings.push(
-      'No se han podido identificar posiciones automáticamente en este PDF. Es posible que el documento sea una imagen escaneada o tenga un formato no tabular. Podrás añadir las posiciones manualmente en el siguiente paso.',
+      'No se han podido identificar posiciones automáticamente en este PDF. Es posible que el documento sea una imagen escaneada o tenga un formato no tabular. Prueba con otro archivo.',
     );
   }
 
   const lowConfidenceCount = positions.filter((p) => p.extractionConfidence === 'low').length;
   if (lowConfidenceCount > 0) {
     warnings.push(
-      `${lowConfidenceCount} posición(es) se han extraído con confianza baja. Revísalas cuidadosamente en la pantalla de confirmación.`,
+      `${lowConfidenceCount} posición(es) se han extraído con confianza baja. Se indicarán en el informe final para que las verifiques con tu extracto original.`,
     );
   }
 

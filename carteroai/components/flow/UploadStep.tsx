@@ -22,7 +22,7 @@ export function UploadStep({ onFileSelected, maxSizeMb, errorMessage }: Props) {
 
   return (
     <div className="container-app flex min-h-[80vh] flex-col justify-center py-12">
-      <p className="label-sm mb-2 text-signal-teal">Paso 1 de 5</p>
+      <p className="label-sm mb-2 text-signal-teal">Paso 1 de 4</p>
       <h1 className="mb-3 font-serif text-3xl text-ink-950 sm:text-4xl">Sube el PDF de tu cartera</h1>
       <p className="mb-8 max-w-lg text-sm leading-relaxed text-ink-600">
         Puede ser el extracto de posiciones de tu bróker, banco o gestora. Léelo bien: procesamos el archivo en
@@ -85,7 +85,8 @@ export function UploadStep({ onFileSelected, maxSizeMb, errorMessage }: Props) {
         <div className="card p-4">
           <p className="mb-1 text-xs font-semibold text-ink-950">Antes de empezar</p>
           <p className="text-xs leading-relaxed text-ink-500">
-            En el siguiente paso podrás revisar y corregir cualquier posición que hayamos leído mal.
+            Leemos automáticamente las posiciones de tu PDF. Si algo no se identifica bien, te lo indicaremos en el
+            propio informe en vez de pedirte que lo revises antes.
           </p>
         </div>
       </div>

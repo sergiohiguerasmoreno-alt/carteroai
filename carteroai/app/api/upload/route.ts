@@ -50,15 +50,14 @@ export async function POST(req: NextRequest) {
     if (!text || text.trim().length < 20) {
       return NextResponse.json(
         {
-          error:
-            'No se ha podido extraer texto de este PDF (puede ser una imagen escaneada). Podrás introducir las posiciones manualmente en el siguiente paso.',
+          error: 'No se ha podido extraer texto de este PDF (puede ser una imagen escaneada). Prueba con otro archivo.',
           portfolio: {
             id: 'manual',
             positions: [],
             baseCurrency: 'EUR',
             sourceFileName: file.name,
             extractedAt: new Date().toISOString(),
-            extractionWarnings: ['El PDF no contiene texto extraíble. Añade tus posiciones manualmente.'],
+            extractionWarnings: ['El PDF no contiene texto extraíble.'],
           },
         },
         { status: 200 },
@@ -71,7 +70,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ portfolio, preliminarySummary, numPages });
   } catch (err) {
     console.error('Error procesando PDF:', err instanceof Error ? err.message : 'error desconocido');
-    return NextResponse.json({ error: 'No se ha podido procesar el PDF. Prueba con otro archivo o añade las posiciones manualmente.' }, { status: 422 });
+    return NextResponse.json({ error: 'No se ha podido procesar el PDF. Prueba con otro archivo, idealmente el extracto de posiciones de tu bróker o banco en formato tabla.' }, { status: 422 });
   }
   // El buffer queda fuera de alcance al terminar esta función y es recolectado por el GC; no se persiste en ningún momento.
 }

@@ -7,12 +7,11 @@ import type { AnswerMap } from '@/lib/questions/types';
 import { buildInvestorProfile } from '@/lib/questions/build-profile';
 import { UploadStep } from '@/components/flow/UploadStep';
 import { StagedProcessing } from '@/components/flow/StagedProcessing';
-import { ConfirmPositionsStep } from '@/components/flow/ConfirmPositionsStep';
 import { QuestionsStep } from '@/components/flow/QuestionsStep';
 import { EmailGateStep } from '@/components/flow/EmailGateStep';
 import { ReportView } from '@/components/report/ReportView';
 
-type Phase = 'upload' | 'parsing' | 'confirm' | 'questions' | 'email-gate' | 'analyzing' | 'report' | 'error';
+type Phase = 'upload' | 'parsing' | 'questions' | 'email-gate' | 'analyzing' | 'report' | 'error';
 
 const MAX_UPLOAD_MB = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? 15);
 
@@ -39,8 +38,28 @@ export default function AnalizarPage() {
         setPhase('upload');
         return;
       }
-      setPortfolio(data.portfolio);
-      setPhase('confirm');
+
+      // No hay pantalla de confirmación manual: las posiciones extraídas se
+      // dan por buenas directamente. Aun así, nunca pasamos a analizar una
+      // cartera vacía o con nombres vacíos (el motor de cálculo y el
+      // esquema de validación de /api/analyze exigen al menos una posición
+      // con nombre) — si la extracción no ha producido nada usable, se
+      // informa con un error claro en vez de seguir con un análisis vacío.
+      const portfolioData = data.portfolio as Portfolio;
+      const usablePositions = portfolioData.positions.filter((p) => p.name.trim().length > 0);
+      if (usablePositions.length === 0) {
+        setErrorMessage(
+          'No hemos podido identificar posiciones en este PDF. Prueba con otro archivo (por ejemplo, el extracto de posiciones de tu bróker o banco en formato tabla).',
+        );
+        setPhase('upload');
+        return;
+      }
+
+      setPortfolio({
+        ...portfolioData,
+        positions: usablePositions.map((p) => ({ ...p, userConfirmed: true })),
+      });
+      setPhase('questions');
     } catch {
       setErrorMessage('No se ha podido conectar con el servidor. Comprueba tu conexión e inténtalo de nuevo.');
       setPhase('upload');
@@ -114,10 +133,6 @@ export default function AnalizarPage() {
         stages={['Extrayendo posiciones', 'Identificando activos', 'Analizando composición', 'Preparando preguntas', 'Consultando información actualizada']}
       />
     );
-  }
-
-  if (phase === 'confirm' && portfolio) {
-    return <ConfirmPositionsStep portfolio={portfolio} onChange={setPortfolio} onContinue={() => setPhase('questions')} />;
   }
 
   if (phase === 'questions') {

@@ -131,7 +131,7 @@ export function QuestionsStep({ answers, onAnswersChange, groupIndex, onGroupInd
 
   return (
     <div className="container-app flex min-h-[85vh] flex-col py-10">
-      <p className="label-sm mb-2 text-signal-teal">Paso 3 de 5</p>
+      <p className="label-sm mb-2 text-signal-teal">Paso 2 de 4</p>
       <div className="mb-8 flex gap-1.5">
         {groups.map((g, i) => (
           <div key={g.id} className={'h-1 flex-1 rounded-full ' + (i <= groupIndex ? 'bg-signal-teal' : 'bg-ink-100')} />
