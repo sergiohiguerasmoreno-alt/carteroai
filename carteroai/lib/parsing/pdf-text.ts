@@ -1,4 +1,5 @@
 import 'server-only';
+import * as pdfjsWorkerEntry from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 
 /**
  * Extracción de texto de un PDF. Se ejecuta EXCLUSIVAMENTE en servidor.
@@ -11,7 +12,21 @@ import 'server-only';
  * cada fragmento de texto, agrupando por coordenada Y — más fiel al
  * formato tabular real de los extractos de cartera que una simple
  * concatenación de fragmentos.
+ *
+ * IMPORTANTE — worker de pdfjs-dist en entornos serverless (Vercel/Lambda):
+ * incluso en Node, pdfjs-dist necesita su módulo "worker" (lo ejecuta en el
+ * mismo hilo mediante un "fake worker", no un hilo real). Internamente lo
+ * localiza con una ruta calculada en tiempo de ejecución
+ * (`import(this.workerSrc)`), que el trazador de archivos de Next/Vercel no
+ * puede seguir por ser dinámica — así que en local funciona (todo
+ * `node_modules` está presente) pero en la función serverless desplegada el
+ * archivo del worker no se incluye y la extracción falla en producción.
+ * Lo evitamos importando el worker de forma ESTÁTICA (ruta literal, que el
+ * trazador sí detecta) y registrándolo en `globalThis.pdfjsWorker`: pdfjs-dist
+ * lo usa directamente sin tener que resolver ninguna ruta en tiempo de
+ * ejecución.
  */
+(globalThis as unknown as { pdfjsWorker?: unknown }).pdfjsWorker = pdfjsWorkerEntry;
 export interface ExtractedPdf {
   text: string;
   numPages: number;
