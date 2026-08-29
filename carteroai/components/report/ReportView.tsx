@@ -54,6 +54,10 @@ export function ReportView({ analysis, portfolio, profile, onRestart }: Props) {
           <p className="label-sm mb-2 text-signal-teal">Informe completado</p>
           <h1 className="font-serif text-3xl text-ink-950">Tu análisis de cartera</h1>
           <p className="mt-1 text-sm text-ink-500">{new Date(analysis.generatedAt).toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+          <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-600">
+            Empieza por el resumen: en un vistazo te dice qué tal está tu cartera y qué merece la pena mirar. El resto del informe entra en el
+            detalle, por si quieres profundizar en algún punto.
+          </p>
         </div>
         <div className="flex gap-2">
           <button onClick={downloadPdf} disabled={downloading} className="btn-primary">
@@ -66,11 +70,11 @@ export function ReportView({ analysis, portfolio, profile, onRestart }: Props) {
       {/* Resumen ejecutivo */}
       <Section title="Resumen ejecutivo" subtitle="Si solo lees una sección, que sea esta.">
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
-          <ScoreTile label="Global" value={score.overall} big />
-          <ScoreTile label="Diversificación" value={score.diversification} />
-          <ScoreTile label="Ajuste de riesgo" value={score.riskAlignment} />
-          <ScoreTile label="Coste" value={score.cost} />
-          <ScoreTile label="Adecuación" value={score.suitability} />
+          <ScoreTile label="Global" value={score.overall} big hint="Nota media de tu cartera" />
+          <ScoreTile label="Diversificación" value={score.diversification} hint="Cuánto reparte el riesgo" />
+          <ScoreTile label="Ajuste de riesgo" value={score.riskAlignment} hint="Si el riesgo encaja contigo" />
+          <ScoreTile label="Coste" value={score.cost} hint="Cuánto pagas por tus productos" />
+          <ScoreTile label="Adecuación" value={score.suitability} hint="Si encaja con tu objetivo" />
         </div>
         <p className="mb-4 text-sm leading-relaxed text-ink-700">{score.explanation}</p>
 
@@ -136,7 +140,7 @@ export function ReportView({ analysis, portfolio, profile, onRestart }: Props) {
       </Section>
 
       {/* Diversificación */}
-      <Section title="Diversificación">
+      <Section title="Diversificación" subtitle="Si un mal día de un solo valor o sector puede arrastrar a toda tu cartera.">
         <p className="mb-4 text-sm leading-relaxed text-ink-700">{diversification.summary}</p>
         {diversification.hiddenConcentrationNotes.length > 0 && (
           <ul className="space-y-2 text-sm text-ink-700">
@@ -170,7 +174,7 @@ export function ReportView({ analysis, portfolio, profile, onRestart }: Props) {
       </Section>
 
       {/* Rentabilidad */}
-      <Section title="Rentabilidad y benchmark">
+      <Section title="Rentabilidad y benchmark" subtitle="Cómo le ha ido a tu cartera frente a un índice de referencia comparable.">
         <p className="mb-4 text-sm leading-relaxed text-ink-700">
           <span className="font-medium text-ink-950">Benchmark: {returns.benchmark.name}. </span>
           {returns.benchmark.rationale}
@@ -220,7 +224,7 @@ export function ReportView({ analysis, portfolio, profile, onRestart }: Props) {
 
       {/* Fundamental / ETF notes */}
       {(fundamentals.length > 0 || etfNotes.length > 0) && (
-        <Section title="Análisis fundamental y de ETFs/fondos">
+        <Section title="Análisis fundamental y de ETFs/fondos" subtitle="Un vistazo más de cerca a tus posiciones individuales más relevantes.">
           {fundamentals.length > 0 && (
             <div className="mb-6 space-y-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Acciones individuales</p>
@@ -253,7 +257,7 @@ export function ReportView({ analysis, portfolio, profile, onRestart }: Props) {
       <RecommendationsSection recommendations={recommendations} />
 
       {/* Plan de acción */}
-      <Section title="Plan de acción">
+      <Section title="Plan de acción" subtitle="Qué hacer y cuándo, en lenguaje sencillo.">
         {actionPlan.noActionNeeded ? (
           <p className="text-sm font-medium text-signal-tealDark">No es necesaria ninguna acción en este momento.</p>
         ) : (
@@ -286,7 +290,7 @@ export function ReportView({ analysis, portfolio, profile, onRestart }: Props) {
       </Section>
 
       {/* Fuentes */}
-      <Section title="Fuentes utilizadas">
+      <Section title="Fuentes utilizadas" subtitle="De dónde salen los datos de este informe, para que puedas comprobarlos.">
         <div className="space-y-2">
           {sources.map((s, i) => (
             <div key={i} className="flex flex-col gap-0.5 border-b border-ink-100 pb-2 text-sm sm:flex-row sm:justify-between">
