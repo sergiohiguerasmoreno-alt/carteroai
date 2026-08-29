@@ -85,4 +85,67 @@ describe('extractPositionsFromText — documento tipo tarjeta/infografía (no ta
   it('avisa de que el documento parece un plan de aportación periódica', () => {
     expect(portfolio.extractionWarnings.some((w) => w.includes('aportación periódica'))).toBe(true);
   });
+
+  it('clasifica un ETF nombrado por su índice de referencia como ETF, no como empresa', () => {
+    // Bug real reportado: sin esto, el motor de reglas trataba "MSCI World
+    // (IWDA)" como si fuera una única empresa y recomendaba "reducir el peso
+    // de una sola empresa" sobre un ETF globalmente diversificado.
+    const world = portfolio.positions.find((p) => p.name === 'MSCI World (IWDA)');
+    expect(world?.assetClass).toBe('etf');
+  });
+});
+
+describe('extractPositionsFromText — ETFs nombrados por su índice de referencia', () => {
+  it('clasifica como ETF aunque no lleve marca de emisor en el nombre', () => {
+    const text = [
+      'MSCI World (IWDA)  34%  102 €/mes',
+      'MSCI Europe (IMEU)  17%  51 €/mes',
+      'MSCI EM (EIMI)  12.5%  37.50 €/mes',
+      'S&P 500 (VUSA)  10%  30 €/mes',
+      'FTSE All-World (VWRL)  10%  30 €/mes',
+    ].join('\n');
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    const byName = new Map(portfolio.positions.map((p) => [p.name, p.assetClass]));
+    expect(byName.get('MSCI World (IWDA)')).toBe('etf');
+    expect(byName.get('MSCI Europe (IMEU)')).toBe('etf');
+    expect(byName.get('MSCI EM (EIMI)')).toBe('etf');
+    expect(byName.get('S&P 500 (VUSA)')).toBe('etf');
+    expect(byName.get('FTSE All-World (VWRL)')).toBe('etf');
+  });
+
+  it('sigue clasificando como equity una acción individual normal', () => {
+    const text = ['Johnson & Johnson 2%', 'NVDA  1.5%'].join('\n');
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    const byName = new Map(portfolio.positions.map((p) => [p.name, p.assetClass]));
+    expect(byName.get('Johnson & Johnson')).toBe('equity');
+    expect(byName.get('NVDA')).toBe('equity');
+  });
+
+  it('no trunca el nombre de un índice que incluye un número (p.ej. "S&P 500")', () => {
+    // Bug relacionado: antes de proteger estos números, "S&P 500 (VUSA)" se
+    // cortaba en "S&P" (el "500" se interpretaba como el inicio de las
+    // columnas de datos económicos) y además colaba un 500 como si fuera una
+    // cifra real de cantidad/precio.
+    const text = 'S&P 500 (VUSA)  10%  30 €/mes';
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions[0]?.name).toBe('S&P 500 (VUSA)');
+    expect(portfolio.positions[0]?.weightAsStated).toBeCloseTo(0.1);
+  });
+});
+
+describe('extractPositionsFromText — materias primas (ETC de oro/plata)', () => {
+  it('clasifica como ETF/ETC una posición de materias primas, no como empresa', () => {
+    const text = 'Materias primas (oro físico)  5%  15 €/mes';
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions[0]?.assetClass).toBe('etf');
+  });
+
+  it('no clasifica como materia prima una minera individual que lleve "Gold" en el nombre', () => {
+    // Guardarraíl deliberado: "Barrick Gold" o "Gold Fields" son empresas
+    // mineras reales, no un ETC de oro físico. Por eso COMMODITY_HINTS no usa
+    // "ORO"/"GOLD" sueltos, y esta posición debe seguir siendo una acción.
+    const text = 'Barrick Gold 3%';
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions[0]?.assetClass).toBe('equity');
+  });
 });
