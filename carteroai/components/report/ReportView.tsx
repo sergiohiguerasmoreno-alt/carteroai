@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import type { ConfirmedPortfolio, InvestorProfile, PortfolioAnalysis } from '@/lib/types';
+import type { AssetClass, ConfirmedPortfolio, InvestorProfile, PortfolioAnalysis } from '@/lib/types';
+import { assetClassLabel } from '@/lib/format/asset-class-labels';
 import { Section } from './Section';
 import { ScoreTile } from './ScoreTile';
 import { RecommendationsSection } from './RecommendationsSection';
@@ -115,7 +116,9 @@ export function ReportView({ analysis, portfolio, profile, onRestart }: Props) {
           </div>
           <div>
             <p className="mb-3 text-sm font-medium text-ink-950">Por tipo de activo</p>
-            <AllocationBarChart data={composition.byAssetClass} />
+            <AllocationBarChart
+              data={composition.byAssetClass.map((s) => ({ ...s, label: assetClassLabel(s.label as AssetClass) }))}
+            />
           </div>
           <div>
             <p className="mb-3 text-sm font-medium text-ink-950">Por sector</p>
