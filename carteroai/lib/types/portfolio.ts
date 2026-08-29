@@ -11,6 +11,7 @@ export type AssetClass =
   | 'equity' // acción individual
   | 'etf'
   | 'fund' // fondo de inversión tradicional
+  | 'commodity' // materia prima física o ETC/ETP respaldado por ella (oro, plata...)
   | 'bond'
   | 'cash'
   | 'crypto'
