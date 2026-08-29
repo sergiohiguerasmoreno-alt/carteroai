@@ -5,6 +5,7 @@ import type { ConfirmedPortfolio, InvestorProfile, PortfolioAnalysis } from '@/l
 import { Section } from './Section';
 import { ScoreTile } from './ScoreTile';
 import { RecommendationsSection } from './RecommendationsSection';
+import { FeedbackWidget } from './FeedbackWidget';
 import { AllocationBarChart } from '@/components/charts/AllocationBarChart';
 import { ReturnComparisonChart } from '@/components/charts/ReturnComparisonChart';
 
@@ -317,6 +318,8 @@ export function ReportView({ analysis, portfolio, profile, onRestart }: Props) {
       <Section title="Aviso legal">
         <p className="text-xs leading-relaxed text-ink-500">{disclaimer}</p>
       </Section>
+
+      <FeedbackWidget reportId={analysis.id} />
 
       <div className="mt-10 flex justify-center">
         <button onClick={onRestart} className="btn-secondary">
