@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const AssetClassSchema = z.enum(['equity', 'etf', 'fund', 'bond', 'cash', 'crypto', 'other']);
+export const AssetClassSchema = z.enum(['equity', 'etf', 'fund', 'commodity', 'bond', 'cash', 'crypto', 'other']);
 export const ExtractionConfidenceSchema = z.enum(['high', 'medium', 'low']);
 
 export const PositionSchema = z.object({
