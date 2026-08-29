@@ -132,7 +132,11 @@ export function detectCost(ctx: RuleContext): RecommendationDraft[] {
   // es marcadamente alto en términos absolutos.
   const drafts: RecommendationDraft[] = [];
   for (const pc of ctx.positions) {
-    if ((pc.position.assetClass !== 'etf' && pc.position.assetClass !== 'fund') || pc.terPct === undefined) continue;
+    if (
+      (pc.position.assetClass !== 'etf' && pc.position.assetClass !== 'fund' && pc.position.assetClass !== 'commodity') ||
+      pc.terPct === undefined
+    )
+      continue;
     if (pc.terPct >= 0.015 && pc.weightPct >= 0.08) {
       drafts.push({
         category: 'review',
