@@ -76,3 +76,9 @@ export const LeadRequestSchema = z.object({
     source: z.string().max(60),
   }),
 });
+
+export const FeedbackRequestSchema = z.object({
+  reportId: z.string().min(1).max(64),
+  helpful: z.boolean(),
+  comment: z.string().trim().max(1000).optional(),
+});
