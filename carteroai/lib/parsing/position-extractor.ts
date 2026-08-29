@@ -50,11 +50,54 @@ function extractTrailingTicker(nameCandidate: string): { name: string; ticker?: 
   return { name: nameCandidate };
 }
 
-const ETF_HINTS = ['ETF', 'UCITS', 'TRACKER', 'ISHARES', 'VANGUARD', 'XTRACKERS', 'SPDR', 'AMUNDI ETF', 'INVESCO'];
+const ETF_HINTS = ['ETF', 'ETC', 'ETP', 'UCITS', 'TRACKER', 'ISHARES', 'VANGUARD', 'XTRACKERS', 'SPDR', 'AMUNDI ETF', 'INVESCO'];
 const FUND_HINTS = ['FONDO', 'FUND', 'SICAV', 'FI ', ' FI', 'PLAN DE PENSIONES', 'PENSION'];
 const BOND_HINTS = ['BOND', 'OBLIGAC', 'BONO', 'TREASURY', 'LETRA', 'DEUDA'];
 const CASH_HINTS = ['EFECTIVO', 'CASH', 'LIQUIDEZ', 'CUENTA CORRIENTE', 'CUENTA REMUNERADA'];
 const CRYPTO_HINTS = ['BITCOIN', 'ETHEREUM', 'BTC', 'ETH', 'CRIPTO', 'CRYPTO'];
+// Nombres de índices de referencia: en una cartera minorista, una posición
+// llamada así (con o sin la marca del emisor) es casi siempre el ETF/fondo
+// indexado que replica ese índice, nunca una empresa individual que cotice
+// con ese nombre. Sin esta lista, "MSCI World (IWDA)" se clasificaba como
+// una acción cualquiera, y el motor de reglas podía tratar un ETF
+// globalmente diversificado como si fuera "una sola empresa" a efectos de
+// riesgo de concentración.
+const INDEX_HINTS = [
+  'MSCI WORLD', 'MSCI EUROPE', 'MSCI EM', 'MSCI EMERGING', 'MSCI ACWI', 'ACWI',
+  'S&P 500', 'S&P500', 'FTSE ALL-WORLD', 'FTSE ALL WORLD', 'FTSE 100', 'FTSE 250',
+  'STOXX 600', 'EURO STOXX', 'NASDAQ 100', 'RUSSELL 2000', 'RUSSELL 1000',
+  'NIKKEI 225', 'IBEX 35', 'CAC 40', 'DAX 40', 'TOPIX', 'EM IMI',
+  'ALL COUNTRY WORLD', 'TOTAL WORLD STOCK', 'TOTAL STOCK MARKET', 'WORLD INDEX',
+];
+// Categorías de materias primas: en una cartera minorista, una posición
+// descrita así es casi siempre un ETC/fondo respaldado por el activo físico
+// (oro, plata...), nunca una empresa. Términos genéricos y no ambiguos
+// solamente: se evita "ORO"/"GOLD"/"PLATA"/"SILVER" sueltos porque también
+// son parte de nombres reales de empresas mineras (p.ej. "Gold Fields",
+// "Barrick Gold"), que sí son una acción individual y deben tratarse como tal.
+const COMMODITY_HINTS = [
+  'MATERIAS PRIMAS', 'COMMODITIES', 'COMMODITY', 'METALES PRECIOSOS', 'PRECIOUS METALS',
+  'ORO FÍSICO', 'ORO FISICO', 'PHYSICAL GOLD', 'PLATA FÍSICA', 'PLATA FISICA', 'PHYSICAL SILVER',
+];
+
+// Varios índices de referencia muy comunes incluyen un número en su propio
+// nombre (S&P 500, FTSE 100, IBEX 35, NASDAQ 100...). Sin este enmascarado,
+// el parser interpretaba ese número como el inicio de las columnas de datos
+// económicos (cantidad/precio/valor) y cortaba el nombre de la posición por
+// la mitad (p.ej. "S&P 500 (VUSA)" quedaba en solo "S&P"), además de colar
+// ese número como si fuera una cifra económica real. Enmascaramos solo los
+// dígitos que forman parte de estos nombres de índice conocidos, preservando
+// la longitud del texto para no desplazar el resto de posiciones.
+function maskProtectedIndexNumbers(text: string): string {
+  let result = text;
+  for (const hint of INDEX_HINTS) {
+    if (!/\d/.test(hint)) continue;
+    const escaped = hint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(escaped, 'gi');
+    result = result.replace(re, (match) => match.replace(/\d/g, '#'));
+  }
+  return result;
+}
 
 function classifyAsset(name: string, isin?: string): AssetClass {
   const upper = name.toUpperCase();
@@ -63,6 +106,8 @@ function classifyAsset(name: string, isin?: string): AssetClass {
   if (BOND_HINTS.some((h) => upper.includes(h))) return 'bond';
   if (ETF_HINTS.some((h) => upper.includes(h))) return 'etf';
   if (FUND_HINTS.some((h) => upper.includes(h))) return 'fund';
+  if (INDEX_HINTS.some((h) => upper.includes(h))) return 'etf';
+  if (COMMODITY_HINTS.some((h) => upper.includes(h))) return 'etf';
   // Prefijos ISIN típicos de UCITS domiciliados en Irlanda/Luxemburgo suelen
   // ser ETFs o fondos, pero es una señal débil: no decide por sí sola.
   if (isin && (isin.startsWith('IE00') || isin.startsWith('LU')) && name.split(' ').length <= 6) {
@@ -88,14 +133,21 @@ interface LineTokens {
 }
 
 function tokenizeLine(line: string): LineTokens {
-  const isinMatch = line.match(ISIN_RE);
+  // Enmascara los dígitos que forman parte de nombres de índice conocidos
+  // (ver maskProtectedIndexNumbers) antes de buscar ISIN/porcentajes/números,
+  // para que no se confundan con cifras económicas ni corten el nombre. El
+  // texto enmascarado tiene la misma longitud que `line`, así que los índices
+  // calculados sobre él siguen siendo válidos para recortar `line`.
+  const masked = maskProtectedIndexNumbers(line);
+
+  const isinMatch = masked.match(ISIN_RE);
   const isin = isinMatch?.[0];
 
-  const currencyMatch = line.match(CURRENCY_RE);
+  const currencyMatch = masked.match(CURRENCY_RE);
   let currency = currencyMatch?.[1];
   if (!currency) {
     for (const [symbol, code] of Object.entries(CURRENCY_SYMBOLS)) {
-      if (line.includes(symbol)) {
+      if (masked.includes(symbol)) {
         currency = code;
         break;
       }
@@ -105,14 +157,14 @@ function tokenizeLine(line: string): LineTokens {
   // Usamos matchAll (en vez de match) para poder mirar el texto que precede a
   // cada porcentaje y descartar los que en realidad describen una
   // rentabilidad/coste, no el peso de la posición en la cartera.
-  const percentMatches = Array.from(line.matchAll(PERCENT_RE));
-  const weightMatch = percentMatches.find((m) => !NON_WEIGHT_PERCENT_QUALIFIER_RE.test(line.slice(0, m.index ?? 0)));
+  const percentMatches = Array.from(masked.matchAll(PERCENT_RE));
+  const weightMatch = percentMatches.find((m) => !NON_WEIGHT_PERCENT_QUALIFIER_RE.test(masked.slice(0, m.index ?? 0)));
   const weight = weightMatch ? parseLocalizedNumber(weightMatch[0].replace('%', '')) : undefined;
   const weightPct = weight !== undefined ? weight / 100 : undefined;
 
   // Retiramos ISIN y porcentajes de la línea antes de buscar números "planos"
   // para no confundir dígitos del ISIN con cifras económicas.
-  let stripped = line;
+  let stripped = masked;
   if (isin) stripped = stripped.replace(isin, ' ');
   for (const m of percentMatches) stripped = stripped.replace(m[0], ' ');
 
@@ -125,8 +177,8 @@ function tokenizeLine(line: string): LineTokens {
   // (si no se corta también en el porcentaje, líneas del tipo "TICKER  12%"
   // dejan el porcentaje pegado al nombre).
   const cutIndex = Math.min(
-    isin ? line.indexOf(isin) : Infinity,
-    numberMatches.length > 0 ? line.search(NUMBER_RE) : Infinity,
+    isin ? masked.indexOf(isin) : Infinity,
+    numberMatches.length > 0 ? masked.search(NUMBER_RE) : Infinity,
     percentMatches.length > 0 ? (percentMatches[0]!.index ?? Infinity) : Infinity,
   );
   const rawNameCandidate = cleanName(Number.isFinite(cutIndex) ? line.slice(0, cutIndex) : line);
