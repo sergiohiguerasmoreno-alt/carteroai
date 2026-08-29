@@ -93,7 +93,7 @@ export class MarketDataService {
       }
     }
 
-    if (position.assetClass === 'etf' || position.assetClass === 'fund') {
+    if (position.assetClass === 'etf' || position.assetClass === 'fund' || position.assetClass === 'commodity') {
       etf = await this.getEtf(symbol);
       if (!etf) {
         notes.push(
