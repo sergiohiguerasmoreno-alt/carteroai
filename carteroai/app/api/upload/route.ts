@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractPdfText } from '@/lib/parsing/pdf-text';
-import { extractPositionsFromText } from '@/lib/parsing/position-extractor';
+import { extractPositionsSmart } from '@/lib/parsing/position-extractor';
 import { buildPreliminarySummary } from '@/lib/parsing/preliminary-summary';
 import { validatePdfUpload, hasPdfMagicBytes } from '@/lib/security/validate-upload';
 import { checkRateLimit, clientIdentifier } from '@/lib/security/rate-limit';
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const portfolio = extractPositionsFromText(text, file.name);
+    const portfolio = await extractPositionsSmart(text, file.name);
     const preliminarySummary = buildPreliminarySummary(portfolio);
 
     return NextResponse.json({ portfolio, preliminarySummary, numPages });
