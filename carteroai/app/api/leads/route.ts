@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { LeadRequestSchema } from '@/lib/validation/schemas';
-import { appendLead } from '@/lib/leads/google-sheets';
+import { appendLead } from '@/lib/leads/store';
 import { checkRateLimit, clientIdentifier } from '@/lib/security/rate-limit';
 
 export const runtime = 'nodejs';
