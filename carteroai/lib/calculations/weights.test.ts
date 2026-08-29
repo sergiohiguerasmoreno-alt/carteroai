@@ -91,4 +91,58 @@ describe('computeValuedPortfolio', () => {
     expect(vp.positions[0]!.valueBaseCcy).toBeUndefined();
     expect(vp.unvaluedCount).toBe(1);
   });
+
+  it('imputa el valor de una posición sin precio/cantidad a partir de su peso declarado, calibrando con las posiciones que sí tienen valor y peso a la vez', () => {
+    // Caso real reportado: un PDF de plan de aportación periódica da un
+    // importe en €/mes (que aquí hace de "valor de mercado") para algunas
+    // posiciones y solo un porcentaje para otras (p.ej. una acción suelta
+    // sin importe). Antes, esas últimas se descartaban del todo y la
+    // composición/diversificación mostraba solo el subconjunto valorado
+    // como si fuera el 100% de la cartera.
+    const portfolio: Portfolio = {
+      id: 'p6',
+      baseCurrency: 'EUR',
+      sourceFileName: 'plan.pdf',
+      extractedAt: new Date().toISOString(),
+      extractionWarnings: [],
+      positions: [
+        pos({ id: 'etf1', name: 'ETF 1', assetClass: 'etf', marketValue: 102, currency: 'EUR', weightAsStated: 0.34 }),
+        pos({ id: 'etf2', name: 'ETF 2', assetClass: 'etf', marketValue: 51, currency: 'EUR', weightAsStated: 0.17 }),
+        // Sin marketValue ni cantidad×precio, solo peso declarado.
+        pos({ id: 'nvda', name: 'NVDA', assetClass: 'equity', weightAsStated: 0.015 }),
+      ],
+    };
+
+    const vp = computeValuedPortfolio(portfolio, { EUR: 1 });
+    const nvda = vp.positions.find((p) => p.position.id === 'nvda')!;
+
+    expect(nvda.valueBaseCcy).toBeCloseTo(4.5); // 0.015 * (153/0.51)
+    expect(nvda.valueEstimatedFromStatedWeight).toBe(true);
+    expect(nvda.weightPct).toBeCloseTo(0.015 / (0.34 + 0.17 + 0.015), 4);
+    expect(vp.estimatedFromStatedWeightCount).toBe(1);
+    expect(vp.unvaluedCount).toBe(0);
+    // El total ahora refleja las tres posiciones, no solo las dos valoradas
+    // directamente: 102 + 51 + 4.5 = 157.5.
+    expect(vp.totalValueBaseCcy).toBeCloseTo(157.5);
+  });
+
+  it('no inventa un valor a partir del peso si ninguna posición valorada declara también un peso para calibrar', () => {
+    const portfolio: Portfolio = {
+      id: 'p7',
+      baseCurrency: 'EUR',
+      sourceFileName: 'test.pdf',
+      extractedAt: new Date().toISOString(),
+      extractionWarnings: [],
+      positions: [
+        pos({ id: 'a', name: 'A', marketValue: 1000, currency: 'EUR' }), // sin weightAsStated
+        pos({ id: 'b', name: 'B', weightAsStated: 0.1 }), // sin valor, con peso
+      ],
+    };
+    const vp = computeValuedPortfolio(portfolio, { EUR: 1 });
+    const b = vp.positions.find((p) => p.position.id === 'b')!;
+    expect(b.valueBaseCcy).toBeUndefined();
+    expect(b.valueEstimatedFromStatedWeight).toBeUndefined();
+    expect(vp.estimatedFromStatedWeightCount).toBe(0);
+    expect(vp.unvaluedCount).toBe(1);
+  });
 });
