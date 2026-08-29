@@ -53,6 +53,16 @@ export function buildEnrichmentMap(
       continue;
     }
 
+    if (position.assetClass === 'commodity') {
+      // No depende de un proveedor externo: por definición, una posición de
+      // materias primas (oro físico, plata, un ETC de commodities...) no
+      // tiene un "sector" de empresa ni una geografía de negocio en el
+      // sentido habitual, así que se clasifica de forma determinista en vez
+      // de dejarla caer en "Sin clasificar" por falta de datos de mercado.
+      map.set(position.id, { sector: { 'Materias primas': 1 } });
+      continue;
+    }
+
     if (position.assetClass === 'cash') {
       map.set(position.id, { sector: { Liquidez: 1 }, geography: { [`Divisa ${position.currency ?? ''}`.trim()]: 1 } });
       continue;
