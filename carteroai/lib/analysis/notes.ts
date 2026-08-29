@@ -56,7 +56,7 @@ export function buildFundamentalNotes(positions: Position[], bundles: Map<string
 export function buildEtfNotes(positions: Position[], bundles: Map<string, MarketDataBundle>, overlaps: OverlapPair[]): EtfNote[] {
   const notes: EtfNote[] = [];
   for (const position of positions) {
-    if (position.assetClass !== 'etf' && position.assetClass !== 'fund') continue;
+    if (position.assetClass !== 'etf' && position.assetClass !== 'fund' && position.assetClass !== 'commodity') continue;
     const etf = bundles.get(position.id)?.etf;
 
     const redundantWith = overlaps
