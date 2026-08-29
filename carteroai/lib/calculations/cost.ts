@@ -13,7 +13,7 @@ export interface CostAnalysis {
 }
 
 export function computeCostAnalysis(inputs: CostInput[], totalValueBaseCcy: number): CostAnalysis {
-  const fundLike = inputs.filter((i) => i.assetClass === 'etf' || i.assetClass === 'fund');
+  const fundLike = inputs.filter((i) => i.assetClass === 'etf' || i.assetClass === 'fund' || i.assetClass === 'commodity');
   const withTer = fundLike.filter((i) => i.terPct !== undefined);
   const coverageWeight = fundLike.reduce((a, b) => a + b.weight, 0);
 
