@@ -128,6 +128,9 @@ export async function analyzePortfolio(portfolio: ConfirmedPortfolio, profile: I
   const dataLimitations = collectDataLimitations(bundleList, [
     ...extractionNotes,
     valuedPortfolio.unvaluedCount > 0 ? `${valuedPortfolio.unvaluedCount} posición(es) no se han podido valorar por falta de precio, cantidad o tipo de cambio.` : undefined,
+    valuedPortfolio.estimatedFromStatedWeightCount > 0
+      ? `${valuedPortfolio.estimatedFromStatedWeightCount} posición(es) se han incluido en el análisis usando el peso declarado en el documento, no un precio/cantidad real: su valor en euros es una estimación proporcional, no un dato de mercado.`
+      : undefined,
     returns.dataCoverageWarning,
     cost.weightedTerPct === undefined ? cost.note : undefined,
   ]);
