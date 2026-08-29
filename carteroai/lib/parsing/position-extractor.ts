@@ -2,6 +2,7 @@ import 'server-only';
 import { nanoid } from 'nanoid';
 import type { AssetClass, ExtractionConfidence, Portfolio, Position } from '@/lib/types';
 import { parseLocalizedNumber } from './number-format';
+import { findPositionTableLines } from '@/lib/ai/pdf-structure';
 
 const ISIN_RE = /\b[A-Z]{2}[0-9A-Z]{9}[0-9]\b/g;
 const CURRENCY_CODES = ['EUR', 'USD', 'GBP', 'CHF', 'JPY', 'GBX', 'CAD', 'AUD', 'SEK', 'NOK', 'DKK'];
@@ -230,5 +231,56 @@ export function extractPositionsFromText(text: string, sourceFileName: string): 
     sourceFileName,
     extractedAt: new Date().toISOString(),
     extractionWarnings: warnings,
+  };
+}
+
+function lowConfidenceRatio(p: Portfolio): number {
+  if (p.positions.length === 0) return 1;
+  return p.positions.filter((x) => x.extractionConfidence === 'low').length / p.positions.length;
+}
+
+/** Compara dos extracciones del mismo documento y decide cuál es más fiable. */
+function isBetterExtraction(candidate: Portfolio, baseline: Portfolio): boolean {
+  if (candidate.positions.length === 0) return false;
+  if (baseline.positions.length === 0) return true;
+  const candidateLow = lowConfidenceRatio(candidate);
+  const baselineLow = lowConfidenceRatio(baseline);
+  if (candidateLow !== baselineLow) return candidateLow < baselineLow;
+  return candidate.positions.length > baseline.positions.length;
+}
+
+/**
+ * Igual que extractPositionsFromText, pero si hay IA configurada, primero le
+ * pide que localice en qué líneas del documento está la tabla de posiciones
+ * (documentos con varias cuentas, texto legal mezclado con la tabla, formatos
+ * poco habituales...). La IA solo indica NÚMEROS DE LÍNEA; los datos de cada
+ * posición se siguen extrayendo siempre del texto literal con el mismo
+ * parser determinista de arriba, exactamente igual que si la IA no hubiera
+ * intervenido. Si la IA no está disponible, falla, o el resultado no mejora
+ * la extracción sobre el texto completo, se usa esta última sin cambios.
+ */
+export async function extractPositionsSmart(text: string, sourceFileName: string): Promise<Portfolio> {
+  const baseline = extractPositionsFromText(text, sourceFileName);
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  const ranges = await findPositionTableLines(lines).catch(() => null);
+  if (!ranges) return baseline;
+
+  const focusedLines = ranges.flatMap((r) => lines.slice(r.start, r.end + 1));
+  if (focusedLines.length === 0) return baseline;
+
+  const focused = extractPositionsFromText(focusedLines.join('\n'), sourceFileName);
+  if (!isBetterExtraction(focused, baseline)) return baseline;
+
+  return {
+    ...focused,
+    extractionWarnings: [
+      ...focused.extractionWarnings,
+      'Se ha usado IA para ayudar a localizar la tabla de posiciones dentro del documento. Los datos de cada posición se han leído directamente del texto del PDF, nunca generados por la IA.',
+    ],
   };
 }
