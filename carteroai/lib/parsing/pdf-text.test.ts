@@ -48,4 +48,34 @@ describe('reconstructPageText', () => {
     const text = reconstructPageText(items);
     expect(text.split('\n')).toEqual(['CGG Importe en EUR 2.5%']);
   });
+
+  it('reconstruye dos tarjetas en dos columnas cuando cada una tiene sus campos repartidos en varias filas distintas (no en la misma fila que el ticker)', () => {
+    // Patrón real detectado: a diferencia del caso anterior (todo en una sola
+    // fila por tarjeta), aquí el nombre va en su propia fila y el peso/importe
+    // en otra fila intermedia, con el ticker y la descripción en una tercera
+    // fila que es la única que junta ambas tarjetas (dos tickers sueltos). Sin
+    // reagrupar por bloque, el peso/nombre de cada tarjeta queda huérfano en
+    // una fila que nunca se une a su ticker.
+    const items = [
+      // Fila de nombres (una tarjeta a la izquierda, otra a la derecha)
+      item('Empresa Uno', 20, 750),
+      item('Empresa Dos', 320, 750),
+      // Fila de peso + importe (misma columna que su nombre)
+      item('2%', 20, 730),
+      item('6 €/mes', 90, 730),
+      item('1.5%', 320, 730),
+      item('4.50 €/mes', 390, 730),
+      // Fila de ticker + descripción (la que junta las dos tarjetas: dos
+      // tickers sueltos en la misma fila)
+      item('ABC', 20, 710),
+      item('Descripción larga uno', 60, 710),
+      item('XYZ', 320, 710),
+      item('Descripción larga dos', 360, 710),
+    ];
+    const text = reconstructPageText(items);
+    expect(text.split('\n')).toEqual([
+      'Empresa Uno 2% 6 €/mes ABC Descripción larga uno',
+      'Empresa Dos 1.5% 4.50 €/mes XYZ Descripción larga dos',
+    ]);
+  });
 });
