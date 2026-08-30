@@ -8,6 +8,7 @@ const ASSET_CLASS_LABEL: Record<AssetClass, string> = {
   equity: 'Acción',
   etf: 'ETF',
   fund: 'Fondo',
+  commodity: 'Materias primas',
   bond: 'Renta fija',
   cash: 'Efectivo',
   crypto: 'Cripto',
