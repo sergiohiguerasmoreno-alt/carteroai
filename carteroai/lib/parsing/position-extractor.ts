@@ -99,6 +99,26 @@ function maskProtectedIndexNumbers(text: string): string {
   return result;
 }
 
+// Un número pegado directamente a una letra (sin espacio de por medio,
+// opcionalmente con un guion entre ambos) casi nunca es una cifra económica:
+// es parte de un nombre de producto/molécula ("GLP-1", "Wi-Fi 6", "H2",
+// "COVID-19"...). Sin este enmascarado, ese número se leía como cantidad o
+// importe real. Igual que con los índices de referencia, solo se enmascaran
+// los dígitos (nunca se elimina texto), para no desplazar el resto de la
+// línea.
+//
+// IMPORTANTE: un ISIN (p.ej. "IE00B4L5Y983") es EXACTAMENTE letras y dígitos
+// alternados por diseño, así que este enmascarado nunca debe aplicarse
+// dentro de su rango — de lo contrario lo destruye. `isinSpan`, si se pasa,
+// excluye ese tramo del texto.
+function maskLetterAdjacentDigits(text: string, isinSpan?: string): string {
+  const mask = (s: string) => s.replace(/([A-Za-zÁÉÍÓÚÑáéíóúñ]-?)(\d+)/g, (_m, prefix: string, digits: string) => prefix + '#'.repeat(digits.length));
+  if (!isinSpan) return mask(text);
+  const idx = text.indexOf(isinSpan);
+  if (idx === -1) return mask(text);
+  return mask(text.slice(0, idx)) + isinSpan + mask(text.slice(idx + isinSpan.length));
+}
+
 function classifyAsset(name: string, isin?: string): AssetClass {
   const upper = name.toUpperCase();
   if (CASH_HINTS.some((h) => upper.includes(h))) return 'cash';
@@ -142,10 +162,13 @@ function tokenizeLine(line: string): LineTokens {
   // para que no se confundan con cifras económicas ni corten el nombre. El
   // texto enmascarado tiene la misma longitud que `line`, así que los índices
   // calculados sobre él siguen siendo válidos para recortar `line`.
-  const masked = maskProtectedIndexNumbers(line);
-
-  const isinMatch = masked.match(ISIN_RE);
+  const indexMasked = maskProtectedIndexNumbers(line);
+  // El ISIN se busca ANTES del enmascarado de dígitos pegados a letras (ver
+  // maskLetterAdjacentDigits): un ISIN es letras y dígitos alternados por
+  // diseño y ese enmascarado lo destruiría si se aplicara sin más.
+  const isinMatch = indexMasked.match(ISIN_RE);
   const isin = isinMatch?.[0];
+  const masked = maskLetterAdjacentDigits(indexMasked, isin);
 
   const currencyMatch = masked.match(CURRENCY_RE);
   let currency = currencyMatch?.[1];
@@ -191,6 +214,18 @@ function tokenizeLine(line: string): LineTokens {
   return { isin, currency, weight: weightPct, numbers, nameCandidate: nameCandidate || rawNameCandidate, ticker };
 }
 
+// Cabeceras de sección en estos documentos ("TECNOLOGÍA — 5 EMPRESAS · 10%",
+// "NÚCLEO PASIVO — 51% · 153 €/MES"...) se escriben siempre en mayúsculas, a
+// diferencia del nombre de una posición real (una empresa o instrumento
+// concreto), que es texto normal con minúsculas. Combinado con la mención
+// explícita de "EMPRESA(S)", es una señal fiable para no confundir una
+// cabecera con una posición aunque la cabecera traiga su propio peso.
+function esSeccionCabecera(nameCandidate: string, line: string): boolean {
+  if (/\bEMPRESAS?\b/i.test(line)) return true;
+  const soloLetras = nameCandidate.replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ]/g, '');
+  return soloLetras.length >= 3 && soloLetras === soloLetras.toUpperCase() && soloLetras !== soloLetras.toLowerCase();
+}
+
 function buildPosition(line: string): Position | null {
   // Descarta pie legal / fecha de generación del documento antes de tocar el
   // resto del texto: nunca es una posición y sus números (fechas, nº de
@@ -210,7 +245,11 @@ function buildPosition(line: string): Position | null {
   // varias columnas reconstruidas en una sola línea), no una fila de
   // posición: tratarla como tal es la causa más habitual de posiciones
   // inventadas a partir de una frase suelta (años, nº de empresas...).
-  if (!hasIsin && DESCRIPTIVE_FRAGMENT_RE.test(line)) return null;
+  // Excepción: una línea así que SÍ trae un peso propio y cuyo nombre no
+  // tiene pinta de cabecera de sección (ver esSeccionCabecera) es, casi
+  // siempre, una posición real cuya descripción quedó pegada al nombre por
+  // la maquetación en columnas — descartarla perdería la posición entera.
+  if (!hasIsin && DESCRIPTIVE_FRAGMENT_RE.test(line) && (!hasWeight || esSeccionCabecera(t.nameCandidate, line))) return null;
 
   // Descarta líneas que son claramente cabeceras/totales.
   const upperName = t.nameCandidate.toUpperCase();
@@ -275,6 +314,23 @@ function buildPosition(line: string): Position | null {
   return position;
 }
 
+// Formatos tipo "tarjeta" suelen poner el nombre del instrumento en su
+// propia línea, sin ningún dato, seguido de una línea "TICKER  peso% ..."
+// (p.ej. "NVIDIA" y luego "NVDA  1.5%"). La línea de solo nombre no genera
+// posición por sí sola (buildPosition la descarta al no traer ISIN/número/
+// peso), así que la posición de la línea siguiente termina con el ticker
+// como único nombre disponible. Esta función identifica esas líneas de
+// nombre "huérfanas" para poder recuperarlas como el nombre real.
+function looksLikePlainNameLine(line: string): boolean {
+  if (!line) return false;
+  if (BOILERPLATE_RE.test(line)) return false;
+  if (!/[A-Za-zÁÉÍÓÚÑáéíóúñ]{2,}/.test(line)) return false;
+  const t = tokenizeLine(line);
+  if (t.isin || t.weight !== undefined || t.numbers.length > 0) return false;
+  if (esSeccionCabecera(t.nameCandidate, line)) return false;
+  return true;
+}
+
 function detectBaseCurrency(positions: Position[]): string {
   const counts = new Map<string, number>();
   for (const p of positions) {
@@ -297,10 +353,53 @@ export function extractPositionsFromText(text: string, sourceFileName: string): 
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
 
+  const rawCandidates: Position[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const pos = buildPosition(lines[i]!);
+    if (!pos) continue;
+    // Si el nombre extraído es en realidad solo el ticker (la línea de datos
+    // no traía un nombre propio, p.ej. "NVDA  1.5%"), el nombre real del
+    // instrumento suele estar en la línea inmediatamente anterior cuando el
+    // documento usa un formato de "tarjeta". Se recupera solo cuando esa
+    // línea anterior no aporta ningún dato propio, para no confundirla con
+    // una posición distinta.
+    if (pos.ticker && pos.name === pos.ticker && i > 0 && looksLikePlainNameLine(lines[i - 1]!)) {
+      pos.name = cleanName(lines[i - 1]!);
+      // La clasificación inicial se hizo sobre el ticker suelto (p.ej.
+      // "IGLN" no coincide con ninguna pista de materias primas); con el
+      // nombre real recuperado ("iShares Physical Gold ETC") puede
+      // clasificarse correctamente.
+      pos.assetClass = classifyAsset(pos.name, pos.isin);
+    }
+    rawCandidates.push(pos);
+  }
+
+  // Algunos documentos "tarjeta" repiten la misma posición: una vez en un
+  // resumen compacto (con nombre completo) y otra vez en el detalle, donde
+  // solo queda un fragmento con el ticker suelto y su peso (p.ej. "EIMI
+  // 12.5%" además de "MSCI EM (EIMI)" ya capturada). Tratar ambas como
+  // posiciones distintas duplica su peso y su valor en el análisis. Se
+  // descarta el fragmento cuando su ticker aparece literalmente dentro del
+  // nombre de una posición ya capturada Y su peso declarado coincide, señal
+  // fiable de que son la misma posición (no basta con que el peso coincida:
+  // dos posiciones distintas pueden pesar lo mismo por casualidad).
+  const WEIGHT_DEDUP_EPSILON = 0.001;
   const candidates: Position[] = [];
-  for (const line of lines) {
-    const pos = buildPosition(line);
-    if (pos) candidates.push(pos);
+  for (const p of rawCandidates) {
+    const isDuplicateFragment = candidates.some((kept) => {
+      if (kept.weightAsStated === undefined || p.weightAsStated === undefined) return false;
+      if (Math.abs(kept.weightAsStated - p.weightAsStated) >= WEIGHT_DEDUP_EPSILON) return false;
+      if (p.ticker && p.ticker.length >= 3 && kept.name.toUpperCase().includes(p.ticker.toUpperCase())) return true;
+      // Las materias primas físicas (oro, plata...) son, casi siempre, una
+      // única posición agregada en una cartera minorista: un fragmento de
+      // "tarjeta" de detalle que reaparece con el mismo peso exacto que una
+      // materia prima ya capturada es casi con toda seguridad el mismo
+      // ETC/fondo descrito dos veces (resumen + detalle), no dos posiciones
+      // de materias primas distintas que coincidan en peso por azar.
+      if (kept.assetClass === 'commodity' && p.assetClass === 'commodity') return true;
+      return false;
+    });
+    if (!isDuplicateFragment) candidates.push(p);
   }
 
   // Filtra falsos positivos evidentes: nombres puramente numéricos o de una
