@@ -196,9 +196,29 @@ function tokenizeLine(line: string): LineTokens {
   for (const m of percentMatches) stripped = stripped.replace(m[0], ' ');
 
   const numberMatches = stripped.match(NUMBER_RE) ?? [];
-  const numbers = numberMatches
+  let numbers = numberMatches
     .map((n) => parseLocalizedNumber(n))
     .filter((n): n is number => n !== undefined && Math.abs(n) > 0.0001);
+
+  // Documentos tipo "tarjeta" (con "·") a veces traen, junto al importe real,
+  // otro número suelto en la descripción (un año, un nº de años de dividendo
+  // creciente...) que nunca es una cifra económica. Sin distinguirlos, la
+  // lógica de más abajo ("el mayor de los números es el valor de mercado")
+  // podía tomar ese número descriptivo como si fuera el importe real. La
+  // señal fiable para separarlos es la adyacencia directa a un símbolo/código
+  // de divisa (p.ej. "4.50 €"): un importe real siempre la tiene en estos
+  // documentos, un número meramente descriptivo nunca. Solo se aplica cuando
+  // ALGÚN número sí tiene esa adyacencia — si ninguno la tiene (p.ej. un
+  // extracto tabular con la divisa al final de toda la fila), se conservan
+  // todos los números tal cual, sin perder datos.
+  if (DESCRIPTIVE_FRAGMENT_RE.test(line) && numberMatches.length >= 2) {
+    const currencyMarker = `[€$£]|\\b(?:${CURRENCY_CODES.join('|')})\\b`;
+    const adjacentRe = new RegExp(`(?:${currencyMarker})\\s?(${NUMBER_RE.source})|(${NUMBER_RE.source})\\s?(?:${currencyMarker})`, 'g');
+    const currencyAdjacent = Array.from(stripped.matchAll(adjacentRe))
+      .map((m) => parseLocalizedNumber(m[1] ?? m[2] ?? ''))
+      .filter((n): n is number => n !== undefined && Math.abs(n) > 0.0001);
+    if (currencyAdjacent.length > 0) numbers = currencyAdjacent;
+  }
 
   // El nombre es el texto antes del primer número/ISIN/porcentaje reconocido
   // (si no se corta también en el porcentaje, líneas del tipo "TICKER  12%"
