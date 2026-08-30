@@ -44,6 +44,14 @@ export function parseLocalizedNumber(raw: string): number | undefined {
     if (parts.length > 2) {
       // Varios puntos => separadores de miles europeos, sin decimales.
       normalized = s.replace(/\./g, '');
+    } else if (parts.length === 2 && parts[1] !== undefined && parts[1].length === 3) {
+      // Un único punto seguido de EXACTAMENTE 3 dígitos ("1.500"): en un
+      // documento en formato europeo (el habitual en estos extractos) esto
+      // es casi siempre un separador de miles ("mil quinientos"), no un
+      // decimal — igual que ya se distingue más arriba para la coma
+      // ("1,500" también se trata como miles, no como 1,5). Sin esto,
+      // cantidades enteras como "1.500 acciones" se leían como 1,5.
+      normalized = s.replace(/\./g, '');
     } else {
       normalized = s;
     }
