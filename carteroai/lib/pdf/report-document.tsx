@@ -1,7 +1,8 @@
 import 'server-only';
 import React from 'react';
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
-import type { ConfirmedPortfolio, InvestorProfile, PortfolioAnalysis } from '@/lib/types';
+import type { AssetClass, ConfirmedPortfolio, InvestorProfile, PortfolioAnalysis } from '@/lib/types';
+import { assetClassLabel } from '@/lib/format/asset-class-labels';
 
 const styles = StyleSheet.create({
   page: { padding: 40, fontSize: 10, fontFamily: 'Helvetica', color: '#111722' },
@@ -54,6 +55,7 @@ export function ReportDocument({
 }) {
   const date = new Date(analysis.generatedAt).toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
   const nonMaintainRecs = analysis.recommendations.filter((r) => r.category !== 'maintain');
+  const assetClassByName = new Map<string, AssetClass>(portfolio.positions.map((p) => [p.name, p.assetClass]));
 
   return (
     <Document title={`CarteroAI — Informe de cartera — ${date}`}>
@@ -127,7 +129,9 @@ export function ReportDocument({
           {analysis.composition.byAsset.slice(0, 30).map((a, i) => (
             <View style={styles.tableRow} key={i}>
               <Text style={styles.td}>{a.label}</Text>
-              <Text style={[styles.td, { flex: 0.5 }]}> </Text>
+              <Text style={[styles.td, { flex: 0.5 }]}>
+                {assetClassByName.has(a.label) ? assetClassLabel(assetClassByName.get(a.label)!) : ''}
+              </Text>
               <Text style={[styles.td, { flex: 0.5, textAlign: 'right' }]}>{(a.weightPct * 100).toFixed(1)}%</Text>
             </View>
           ))}
