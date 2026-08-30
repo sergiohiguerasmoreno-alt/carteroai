@@ -136,6 +136,11 @@ export function ReportDocument({
             </View>
           ))}
         </View>
+        {analysis.composition.byAsset.length > 30 && (
+          <Text style={styles.disclaimer}>
+            Mostrando las 30 posiciones de mayor peso de {analysis.composition.byAsset.length} en total; las {analysis.composition.byAsset.length - 30} restantes, de menor peso, no se listan aquí.
+          </Text>
+        )}
 
         <Text style={styles.subTitle}>Distribución sectorial</Text>
         {analysis.composition.bySector.slice(0, 10).map((s, i) => (
@@ -145,6 +150,11 @@ export function ReportDocument({
             </Text>
           </View>
         ))}
+        {analysis.composition.bySector.length > 10 && (
+          <Text style={styles.disclaimer}>
+            Mostrando los 10 sectores de mayor peso de {analysis.composition.bySector.length} en total.
+          </Text>
+        )}
 
         <Text style={styles.subTitle}>Distribución geográfica</Text>
         {analysis.composition.byGeography.slice(0, 10).map((s, i) => (
@@ -154,6 +164,11 @@ export function ReportDocument({
             </Text>
           </View>
         ))}
+        {analysis.composition.byGeography.length > 10 && (
+          <Text style={styles.disclaimer}>
+            Mostrando las 10 regiones de mayor peso de {analysis.composition.byGeography.length} en total.
+          </Text>
+        )}
 
         <Text style={styles.sectionTitle}>Diversificación y riesgo</Text>
         <Text style={styles.paragraph}>{analysis.diversification.summary}</Text>
