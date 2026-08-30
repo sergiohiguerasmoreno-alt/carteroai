@@ -104,10 +104,14 @@ function classifyAsset(name: string, isin?: string): AssetClass {
   if (CASH_HINTS.some((h) => upper.includes(h))) return 'cash';
   if (CRYPTO_HINTS.some((h) => upper.includes(h))) return 'crypto';
   if (BOND_HINTS.some((h) => upper.includes(h))) return 'bond';
+  // Se comprueba antes que ETF_HINTS a propósito: muchos ETC/ETP de materias
+  // primas reales llevan "ETC" en su nombre (p.ej. "iShares Physical Gold
+  // ETC"), y queremos que se clasifiquen como 'commodity' (categoría propia,
+  // distinta de un ETF de renta variable) en vez de caer en el genérico 'etf'.
+  if (COMMODITY_HINTS.some((h) => upper.includes(h))) return 'commodity';
   if (ETF_HINTS.some((h) => upper.includes(h))) return 'etf';
   if (FUND_HINTS.some((h) => upper.includes(h))) return 'fund';
   if (INDEX_HINTS.some((h) => upper.includes(h))) return 'etf';
-  if (COMMODITY_HINTS.some((h) => upper.includes(h))) return 'etf';
   // Prefijos ISIN típicos de UCITS domiciliados en Irlanda/Luxemburgo suelen
   // ser ETFs o fondos, pero es una señal débil: no decide por sí sola.
   if (isin && (isin.startsWith('IE00') || isin.startsWith('LU')) && name.split(' ').length <= 6) {
