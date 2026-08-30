@@ -125,9 +125,19 @@ export async function analyzePortfolio(portfolio: ConfirmedPortfolio, profile: I
       : undefined,
   ];
 
+  // Igual que con las posiciones de confianza baja en la extracción: una
+  // posición que no se ha podido valorar (ni siquiera estimando por peso
+  // declarado, ver computeValuedPortfolio) queda fuera de la composición,
+  // la diversificación y las recomendaciones — no aparece ni como
+  // "mantener". Sin nombrarla aquí, el usuario no tiene forma de saber que
+  // esa posición concreta falta en el resto del informe.
+  const unvaluedNames = valuedPortfolio.positions.filter((v) => v.valueBaseCcy === undefined).map((v) => v.position.name);
+
   const dataLimitations = collectDataLimitations(bundleList, [
     ...extractionNotes,
-    valuedPortfolio.unvaluedCount > 0 ? `${valuedPortfolio.unvaluedCount} posición(es) no se han podido valorar por falta de precio, cantidad o tipo de cambio.` : undefined,
+    unvaluedNames.length > 0
+      ? `${unvaluedNames.length} posición(es) no se han podido valorar por falta de precio, cantidad o tipo de cambio, y por tanto no aparecen en la composición ni en las recomendaciones: ${unvaluedNames.join(', ')}.`
+      : undefined,
     valuedPortfolio.estimatedFromStatedWeightCount > 0
       ? `${valuedPortfolio.estimatedFromStatedWeightCount} posición(es) se han incluido en el análisis usando el peso declarado en el documento, no un precio/cantidad real: su valor en euros es una estimación proporcional, no un dato de mercado.`
       : undefined,
