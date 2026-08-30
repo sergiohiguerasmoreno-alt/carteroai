@@ -220,10 +220,18 @@ function tokenizeLine(line: string): LineTokens {
 // concreto), que es texto normal con minúsculas. Combinado con la mención
 // explícita de "EMPRESA(S)", es una señal fiable para no confundir una
 // cabecera con una posición aunque la cabecera traiga su propio peso.
+//
+// El fallback de "todo en mayúsculas" solo se aplica cuando el candidato a
+// nombre tiene 2+ palabras: toda cabecera de sección real en este tipo de
+// documento es una frase ("NÚCLEO PASIVO", "MERCADOS EMERGENTES"), mientras
+// que una empresa o marca real puede venir estilizada enteramente en
+// mayúsculas y en una sola palabra (p.ej. "NVIDIA") — sin esta restricción,
+// esa posición real se rechazaba por error como si fuera una cabecera.
 function esSeccionCabecera(nameCandidate: string, line: string): boolean {
   if (/\bEMPRESAS?\b/i.test(line)) return true;
   const soloLetras = nameCandidate.replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ]/g, '');
-  return soloLetras.length >= 3 && soloLetras === soloLetras.toUpperCase() && soloLetras !== soloLetras.toLowerCase();
+  const esTodoMayusculas = soloLetras.length >= 3 && soloLetras === soloLetras.toUpperCase() && soloLetras !== soloLetras.toLowerCase();
+  return esTodoMayusculas && nameCandidate.trim().includes(' ');
 }
 
 function buildPosition(line: string): Position | null {
