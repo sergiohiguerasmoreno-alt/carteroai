@@ -279,3 +279,34 @@ describe('extractPositionsFromText — nombre real de una sola palabra en mayús
     expect(portfolio.positions[0]?.ticker).toBe('NVDA');
   });
 });
+
+describe('extractPositionsFromText — importe real vs. número descriptivo suelto (año, nº de años) en tarjetas', () => {
+  // Bug real: una tarjeta con "·" a veces trae, junto al importe real en
+  // €/mes, otro número suelto en la descripción (un año, un "N años subiendo
+  // dividendo"...) que no es una cifra económica. La heurística de "el mayor
+  // de los dos números es el valor de mercado" tomaba ese número descriptivo
+  // como si fuera el importe, disparando el valor de la posición muy por
+  // encima del resto (p.ej. "82% de la cartera" en vez de su ~1.5% real).
+  it('usa el importe adyacente a la divisa como marketValue, no un año suelto en la descripción', () => {
+    const text = 'Alphabet (Google) 1.5% 4.50 €/mes GOOGL Search + GCP + Gemini · dividendo iniciado 2024 · yield ~0.5%';
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions).toHaveLength(1);
+    expect(portfolio.positions[0]?.marketValue).toBeCloseTo(4.5);
+  });
+
+  it('usa el importe adyacente a la divisa como marketValue, no un "N años" suelto en la descripción', () => {
+    const text = 'Johnson & Johnson 2% 6 €/mes JNJ Rating AAA · 61 años subiendo dividendo · oncología e inmunología · yield ~3.1%';
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions).toHaveLength(1);
+    expect(portfolio.positions[0]?.marketValue).toBeCloseTo(6);
+    expect(portfolio.positions[0]?.quantity).toBeUndefined();
+  });
+
+  it('sigue usando ambos números si ninguno es adyacente a una divisa (sin señal para distinguir, no se pierde información)', () => {
+    const text = 'Fondo Genérico 3% · 10 15';
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions).toHaveLength(1);
+    expect(portfolio.positions[0]?.marketValue).toBeCloseTo(15);
+    expect(portfolio.positions[0]?.quantity).toBeCloseTo(10);
+  });
+});
