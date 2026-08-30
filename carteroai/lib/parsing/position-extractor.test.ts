@@ -310,3 +310,83 @@ describe('extractPositionsFromText — importe real vs. número descriptivo suel
     expect(portfolio.positions[0]?.quantity).toBeCloseTo(10);
   });
 });
+
+describe('extractPositionsFromText — ISIN como primera columna (formato habitual de extracto bancario)', () => {
+  // Bug real: muchos extractos bancarios listan el ISIN ANTES del nombre
+  // ("LU0908500753  Amundi MSCI World UCITS ETF  120  28,50  3.420,00"), al
+  // revés que el formato ya cubierto arriba (nombre, luego ISIN). Cortar el
+  // nombre en la posición del ISIN dejaba el nombre vacío y la posición
+  // entera se descartaba — una cartera entera en este formato daba 0
+  // posiciones.
+  it('extrae nombre, cantidad, precio y valor cuando el ISIN va antes del nombre', () => {
+    const text = 'LU0908500753  Amundi MSCI World UCITS ETF  120  28,50 €  3.420,00 €';
+    const portfolio = extractPositionsFromText(text, 'extracto.pdf');
+    expect(portfolio.positions).toHaveLength(1);
+    const p = portfolio.positions[0]!;
+    expect(p.name).toBe('Amundi MSCI World UCITS ETF');
+    expect(p.isin).toBe('LU0908500753');
+    expect(p.quantity).toBeCloseTo(120);
+    expect(p.price).toBeCloseTo(28.5);
+    expect(p.marketValue).toBeCloseTo(3420);
+  });
+
+  it('extrae varias posiciones con ISIN inicial y sin ticker en una cartera de solo fondos', () => {
+    const text = ['LU1781541179  Fundsmith Equity Fund  25.0%', 'ES0138261018  Cobas Internacional FI  10.0%'].join('\n');
+    const portfolio = extractPositionsFromText(text, 'extracto.pdf');
+    expect(portfolio.positions).toHaveLength(2);
+    expect(portfolio.positions.map((p) => p.name)).toEqual(['Fundsmith Equity Fund', 'Cobas Internacional FI']);
+  });
+
+  it('usa el ISIN como nombre provisional si la línea no trae ningún texto descriptivo propio', () => {
+    const text = 'LU0908500753 120 28,50 3.420,00';
+    const portfolio = extractPositionsFromText(text, 'extracto.pdf');
+    expect(portfolio.positions).toHaveLength(1);
+    expect(portfolio.positions[0]?.name).toBe('LU0908500753');
+  });
+});
+
+describe('extractPositionsFromText — tarjeta de "resumen" y de "detalle" de la misma posición (evitar duplicados)', () => {
+  // Caso real observado: algunos documentos "tarjeta" describen la misma
+  // posición dos veces con nombres distintos — una vez en un resumen
+  // compacto ("MSCI World (IWDA) 34% 102 €/mes") y otra vez en una tarjeta
+  // de detalle con el nombre completo del fondo subyacente y una
+  // descripción de sus características ("iShares Core MSCI World (Acc) 34%
+  // 102 €/mes IWDA 1.600+ empresas · 23 países desarrollados · TER 0,20%").
+  // La tarjeta de detalle, al mencionar cuántas empresas contiene el fondo,
+  // se descarta igual que una cabecera de sección para no contar la misma
+  // posición dos veces (lo que dispararía el peso total muy por encima del
+  // 100%). Nótese que esto es deliberadamente conservador: una posición
+  // real cuyo propio nombre contuviera la palabra "empresa" también se
+  // descartaría por esta misma regla — se prioriza no duplicar posiciones
+  // reales frente a admitir ese nombre concreto, mucho menos frecuente.
+  it('no genera una posición duplicada a partir de la tarjeta de detalle de un fondo ya capturado en el resumen', () => {
+    const text = [
+      'MSCI World (IWDA) 34% 102 €/mes',
+      'iShares Core MSCI World (Acc) 34% 102 €/mes IWDA 1.600+ empresas · 23 países desarrollados · TER 0,20%',
+    ].join('\n');
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions).toHaveLength(1);
+    expect(portfolio.positions[0]?.name).toBe('MSCI World (IWDA)');
+  });
+
+  it('sigue descartando una cabecera de sección real con el patrón "<número> EMPRESAS"', () => {
+    const text = 'TECNOLOGÍA — 5 EMPRESAS · 10%';
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions).toHaveLength(0);
+  });
+});
+
+describe('extractPositionsFromText — nombres de índice con número que no debe leerse como cifra económica', () => {
+  // Bug real: "Euro Stoxx 50" es uno de los índices de referencia más
+  // conocidos para un inversor europeo, pero no estaba en la lista de
+  // nombres protegidos: su "50" se leía como el inicio de las columnas de
+  // datos económicos, truncando el nombre y colando un "50" como valor de
+  // mercado inventado.
+  it('no trunca el nombre ni inventa un valor de mercado a partir del "50" de "Eurostoxx 50"', () => {
+    const text = 'Fondo Naranja Eurostoxx 50 12.5%';
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions).toHaveLength(1);
+    expect(portfolio.positions[0]?.name).toBe('Fondo Naranja Eurostoxx 50');
+    expect(portfolio.positions[0]?.marketValue).toBeUndefined();
+  });
+});
