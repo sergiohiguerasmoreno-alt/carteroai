@@ -134,10 +134,19 @@ describe('extractPositionsFromText — ETFs nombrados por su índice de referenc
 });
 
 describe('extractPositionsFromText — materias primas (ETC de oro/plata)', () => {
-  it('clasifica como ETF/ETC una posición de materias primas, no como empresa', () => {
+  it('clasifica una posición de materias primas como commodity, no como empresa ni como ETF de renta variable', () => {
     const text = 'Materias primas (oro físico)  5%  15 €/mes';
     const portfolio = extractPositionsFromText(text, 'plan.pdf');
-    expect(portfolio.positions[0]?.assetClass).toBe('etf');
+    expect(portfolio.positions[0]?.assetClass).toBe('commodity');
+  });
+
+  it('clasifica como commodity un ETC físico aunque su nombre incluya "ETC"', () => {
+    // COMMODITY_HINTS se comprueba antes que ETF_HINTS a propósito: sin eso,
+    // "iShares Physical Gold ETC" caería en el genérico 'etf' por llevar
+    // "ETC" en el nombre, en vez de en la categoría específica 'commodity'.
+    const text = 'iShares Physical Gold ETC 5%';
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions[0]?.assetClass).toBe('commodity');
   });
 
   it('no clasifica como materia prima una minera individual que lleve "Gold" en el nombre', () => {
