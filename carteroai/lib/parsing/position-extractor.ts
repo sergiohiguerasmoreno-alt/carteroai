@@ -65,7 +65,7 @@ const CRYPTO_HINTS = ['BITCOIN', 'ETHEREUM', 'BTC', 'ETH', 'CRIPTO', 'CRYPTO'];
 const INDEX_HINTS = [
   'MSCI WORLD', 'MSCI EUROPE', 'MSCI EM', 'MSCI EMERGING', 'MSCI ACWI', 'ACWI',
   'S&P 500', 'S&P500', 'FTSE ALL-WORLD', 'FTSE ALL WORLD', 'FTSE 100', 'FTSE 250',
-  'STOXX 600', 'EURO STOXX', 'NASDAQ 100', 'RUSSELL 2000', 'RUSSELL 1000',
+  'STOXX 600', 'EURO STOXX', 'EURO STOXX 50', 'EUROSTOXX 50', 'STOXX EUROPE 50', 'NASDAQ 100', 'RUSSELL 2000', 'RUSSELL 1000',
   'NIKKEI 225', 'IBEX 35', 'CAC 40', 'DAX 40', 'TOPIX', 'EM IMI',
   'ALL COUNTRY WORLD', 'TOTAL WORLD STOCK', 'TOTAL STOCK MARKET', 'WORLD INDEX',
 ];
@@ -220,15 +220,32 @@ function tokenizeLine(line: string): LineTokens {
     if (currencyAdjacent.length > 0) numbers = currencyAdjacent;
   }
 
-  // El nombre es el texto antes del primer número/ISIN/porcentaje reconocido
-  // (si no se corta también en el porcentaje, líneas del tipo "TICKER  12%"
-  // dejan el porcentaje pegado al nombre).
+  // El nombre es el texto antes del primer número/porcentaje reconocido (si
+  // no se corta también en el porcentaje, líneas del tipo "TICKER  12%"
+  // dejan el porcentaje pegado al nombre). El ISIN NO corta aquí: muchos
+  // extractos bancarios lo listan como primera columna, antes del nombre
+  // ("LU0908500753  Amundi MSCI World UCITS ETF  120  28,50  3.420,00"), y
+  // cortar en su posición dejaba el nombre vacío y la posición entera se
+  // descartaba más abajo (nameCandidate.length < 2). El ISIN se retira del
+  // texto del nombre aparte, ya que se guarda por separado en t.isin. Para
+  // buscar el número, se enmascara también el propio ISIN (sus dígitos NO
+  // se tocaron en maskLetterAdjacentDigits, precisamente para no destruirlo
+  // como token): si no se enmascarara aquí, el primer "número" encontrado
+  // sería un dígito suelto dentro del propio ISIN, cortando el nombre justo
+  // después de sus dos primeras letras.
+  const maskedForNumberCut = isin ? masked.replace(isin, ' '.repeat(isin.length)) : masked;
   const cutIndex = Math.min(
-    isin ? masked.indexOf(isin) : Infinity,
-    numberMatches.length > 0 ? masked.search(NUMBER_RE) : Infinity,
+    numberMatches.length > 0 ? maskedForNumberCut.search(NUMBER_RE) : Infinity,
     percentMatches.length > 0 ? (percentMatches[0]!.index ?? Infinity) : Infinity,
   );
-  const rawNameCandidate = cleanName(Number.isFinite(cutIndex) ? line.slice(0, cutIndex) : line);
+  let rawNameCandidate = cleanName(Number.isFinite(cutIndex) ? line.slice(0, cutIndex) : line);
+  if (isin) {
+    // Si tras quitar el ISIN no queda ningún nombre propio (línea del tipo
+    // "ISIN 120 28,50 3.420,00", sin ningún texto descriptivo), se usa el
+    // ISIN como nombre provisional: preferible mostrar el identificador a
+    // descartar la posición por completo.
+    rawNameCandidate = cleanName(rawNameCandidate.replace(isin, ' ')) || isin;
+  }
   const { name: nameCandidate, ticker } = extractTrailingTicker(rawNameCandidate);
 
   return { isin, currency, weight: weightPct, numbers, nameCandidate: nameCandidate || rawNameCandidate, ticker };
