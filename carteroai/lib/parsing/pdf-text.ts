@@ -91,7 +91,7 @@ type Row = { y: number; frags: Frag[] };
 
 // ---- Reconstrucción consciente de "tarjetas" en dos columnas ----
 //
-// splitMergedColumnRow (arriba) resuelve el caso en el que TODO los campos
+// splitMergedColumnRow (arriba) resuelve el caso en el que TODOS los campos
 // de dos tarjetas vecinas (ticker, nombre, peso, importe...) caen en la
 // misma fila de texto. Pero muchos documentos de este estilo reparten los
 // campos de una tarjeta en VARIAS filas (nombre en una línea, ticker +
@@ -127,7 +127,7 @@ const PERCENT_ONLY_RE = /^-?[\d.,]+\s*%$/;
 // sufijo de periodicidad ("/mes"). Exige que aparezca de verdad un símbolo
 // de divisa o un sufijo de periodicidad para no confundirlo con cualquier
 // número suelto sin relación con dinero.
-const AMOUNT_ONLY_RE = /^-?[\d.,]+\s*((€|\$|£|EUR|USD|GBP)?\s*(\/\s*[a-zà-úñ]+)?$/i;
+const AMOUNT_ONLY_RE = /^-?[\d.,]+\s*(€|\$|£|EUR|USD|GBP)?\s*(\/\s*[a-zà-úñ]+)?$/i;
 
 // Un nombre real de posición (empresa, fondo...) prácticamente nunca lleva
 // "·": ese separador se usa en estos documentos solo dentro de frases
@@ -356,7 +356,7 @@ export function reconstructPageText(items: TextItemLike[]): string {
               .map((f) => f.str)
               .join(' ')
               .replace(/\s{2,}/g, '  '),
-         );
+          );
         }
       }
     }
