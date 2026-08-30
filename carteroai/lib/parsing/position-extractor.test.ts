@@ -251,3 +251,31 @@ describe('extractPositionsFromText — filas con "·" que sí son una posición 
     expect(portfolio.positions).toHaveLength(0);
   });
 });
+
+describe('extractPositionsFromText — nombre real de una sola palabra en mayúsculas (marca estilizada)', () => {
+  // Bug real: una marca real cuyo logo/nombre viene siempre en mayúsculas
+  // (p.ej. "NVIDIA") y en una sola palabra se confundía con una cabecera de
+  // sección (que en este tipo de documento SIEMPRE es una frase de 2+
+  // palabras, como "NÚCLEO PASIVO" o "TECNOLOGÍA — 5 EMPRESAS"), y la
+  // posición se descartaba por completo aunque trajera su propio peso.
+  it('conserva una posición cuyo nombre es una sola palabra en mayúsculas con descripción y peso propio', () => {
+    const text = 'NVIDIA 1.5% 4.50 €/mes NVDA GPU líder IA · arquitectura CUDA · centros de datos + robótica · yield ~0.03%';
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions).toHaveLength(1);
+    expect(portfolio.positions[0]?.name).toBe('NVIDIA');
+    expect(portfolio.positions[0]?.weightAsStated).toBeCloseTo(0.015);
+  });
+
+  it('sigue descartando una cabecera de sección de 2+ palabras en mayúsculas aunque no mencione "EMPRESA"', () => {
+    const text = 'NÚCLEO PASIVO — 51% · 153 €/MES';
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions).toHaveLength(0);
+  });
+
+  it('recupera un nombre de una sola palabra en mayúsculas como nombre huérfano de la línea anterior', () => {
+    const text = ['NVIDIA', 'NVDA  1.5%'].join('\n');
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions[0]?.name).toBe('NVIDIA');
+    expect(portfolio.positions[0]?.ticker).toBe('NVDA');
+  });
+});
