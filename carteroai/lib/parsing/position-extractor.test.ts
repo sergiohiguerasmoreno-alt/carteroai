@@ -158,3 +158,96 @@ describe('extractPositionsFromText — materias primas (ETC de oro/plata)', () =
     expect(portfolio.positions[0]?.assetClass).toBe('equity');
   });
 });
+
+describe('extractPositionsFromText — recuperación de nombre en formato "tarjeta" (nombre y datos en líneas distintas)', () => {
+  // Patrón habitual en documentos tipo infografía: el nombre completo del
+  // instrumento va en su propia línea (sin datos), y la línea siguiente trae
+  // solo el ticker + peso + descripción. Sin recuperar el nombre, la
+  // posición queda con el ticker suelto como único nombre.
+  it('recupera el nombre completo de la línea anterior cuando la fila de datos solo trae el ticker', () => {
+    const text = ['Compañía Genérica Global', 'CGG  3%'].join('\n');
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions[0]?.name).toBe('Compañía Genérica Global');
+    expect(portfolio.positions[0]?.ticker).toBe('CGG');
+    expect(portfolio.positions[0]?.weightAsStated).toBeCloseTo(0.03);
+  });
+
+  it('reclasifica con el nombre recuperado cuando cambia la clase de activo (p.ej. un ETC de materias primas)', () => {
+    const text = ['iShares Physical Silver ETC', 'ISLN  4%'].join('\n');
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions[0]?.name).toBe('iShares Physical Silver ETC');
+    expect(portfolio.positions[0]?.assetClass).toBe('commodity');
+  });
+
+  it('no recupera el nombre si la línea anterior es una cabecera de sección, no un nombre huérfano', () => {
+    const text = ['TECNOLOGÍA — 2 EMPRESAS · 4%', 'CGG  4%'].join('\n');
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    const cgg = portfolio.positions.find((p) => p.ticker === 'CGG');
+    expect(cgg?.name).toBe('CGG');
+  });
+
+  it('no recupera el nombre si la línea anterior ya es, ella misma, otra posición con datos propios', () => {
+    const text = ['Otra Posición  1%', 'CGG  4%'].join('\n');
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    const cgg = portfolio.positions.find((p) => p.ticker === 'CGG');
+    expect(cgg?.name).toBe('CGG');
+  });
+});
+
+describe('extractPositionsFromText — fragmentos duplicados de la misma posición (resumen + detalle)', () => {
+  it('descarta un fragmento de ticker suelto cuyo peso coincide con una posición ya capturada que lo menciona en su nombre', () => {
+    // "MSCI World (IWDA)" ya capturada arriba con peso 34%; un fragmento
+    // posterior "IWDA  34%" del detalle de la misma tarjeta es la MISMA
+    // posición, no una nueva.
+    const text = ['MSCI World (IWDA)  34%  102 €/mes', 'Otro texto', 'IWDA  34%', 'algo más'].join('\n');
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions.filter((p) => p.name.includes('IWDA') || p.name === 'IWDA')).toHaveLength(1);
+  });
+
+  it('descarta un segundo fragmento de materia prima con el mismo peso aunque su nombre no comparta texto con el primero', () => {
+    // El ticker del fragmento ("IGLN") no aparece dentro de "Materias
+    // primas": el enlace es que ambos son 'commodity' con el mismo peso
+    // declarado, señal de que es la misma posición descrita dos veces.
+    const text = ['Materias primas  7.75%  23.25 €/mes', 'iShares Physical Gold ETC', 'IGLN  7.75%'].join('\n');
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    const commodities = portfolio.positions.filter((p) => p.assetClass === 'commodity');
+    expect(commodities).toHaveLength(1);
+  });
+
+  it('NO descarta dos posiciones distintas solo porque coincidan en peso declarado', () => {
+    // Guardarraíl: dos acciones distintas con el mismo peso (p.ej. una
+    // cartera equiponderada) son posiciones reales diferentes, no
+    // duplicados — deduplicar solo por peso sería un fallo grave y general.
+    const text = ['Compañía Uno  2%', 'Compañía Dos  2%'].join('\n');
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions.map((p) => p.name)).toEqual(expect.arrayContaining(['Compañía Uno', 'Compañía Dos']));
+    expect(portfolio.positions).toHaveLength(2);
+  });
+});
+
+describe('extractPositionsFromText — números pegados a un nombre de producto', () => {
+  it('no interpreta un número pegado a una palabra (p.ej. "GLP-1") como una cantidad o ticker', () => {
+    // Bug real: "GLP-1" se leía como el número "-1" (marketValue = -1) y como
+    // ticker "GLP", en vez de quedarse como parte del nombre del producto.
+    const text = 'Fabricante Farma (Tratamiento GLP-1 líder) 2%';
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions).toHaveLength(1);
+    expect(portfolio.positions[0]?.marketValue).toBeUndefined();
+    expect(portfolio.positions[0]?.ticker).not.toBe('GLP');
+    expect(portfolio.positions[0]?.weightAsStated).toBeCloseTo(0.02);
+  });
+});
+
+describe('extractPositionsFromText — filas con "·" que sí son una posición real (maquetación en tarjetas)', () => {
+  it('conserva una fila con descripción y peso propio aunque contenga "·"', () => {
+    const text = 'CGG Fabricante genérico · líder de su sector 3%';
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions.some((p) => p.weightAsStated !== undefined && Math.abs(p.weightAsStated - 0.03) < 0.001)).toBe(true);
+  });
+
+  it('sigue descartando una cabecera de sección con "·" y peso propio, aunque no termine justo en el peso', () => {
+    const text = 'SALUD — 3 EMPRESAS · 5.5%';
+    const portfolio = extractPositionsFromText(text, 'plan.pdf');
+    expect(portfolio.positions).toHaveLength(0);
+  });
+});
