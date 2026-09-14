@@ -390,3 +390,50 @@ describe('extractPositionsFromText — nombres de índice con número que no deb
     expect(portfolio.positions[0]?.marketValue).toBeUndefined();
   });
 });
+
+describe('extractPositionsFromText — resumen por categoría + detalle por posición (ambos suman 100% cada uno)', () => {
+  // Bug real (cartera de un usuario): el documento lista primero un resumen
+  // por categoría ("MSCI World (IWDA) 34% 306€/trim.") y, más abajo, el
+  // mismo fondo otra vez con su nombre oficial completo en una "tarjeta" de
+  // detalle cuyos campos quedan repartidos en varias líneas: el nombre+peso
+  // en una línea ("iShares Core MSCI World (Acc) 34%") y el ticker suelto,
+  // sin ningún otro dato, en la línea siguiente ("IWDA"). Sin recuperar ese
+  // ticker huérfano, el filtro de duplicados (que compara el ticker de la
+  // posición nueva contra el nombre de una ya capturada) nunca llegaba a
+  // activarse, y las dos "tarjetas" del mismo fondo se sumaban como si
+  // fueran posiciones distintas — la cartera entera se leía muy por encima
+  // del 100% de peso real.
+  it('reconoce el ticker huérfano de la tarjeta de detalle y descarta el duplicado del resumen', () => {
+    const text = [
+      'MSCI World (IWDA)  34%  306 €/trim.',
+      'iShares Core MSCI World (Acc) 34%',
+      'IWDA',
+      '1.600+ empresas · 23 países desarrollados · TER 0,20% 306 €/trim.',
+    ].join('\n');
+    const portfolio = extractPositionsFromText(text, 'cartera.pdf');
+    expect(portfolio.positions).toHaveLength(1);
+    expect(portfolio.positions[0]?.name).toBe('MSCI World (IWDA)');
+    expect(portfolio.positions[0]?.weightAsStated).toBeCloseTo(0.34);
+  });
+
+  // Bug real relacionado, mismo documento: la cabecera de la sub-sección de
+  // materias primas físicas ("ETCs FÍSICOS — 7,75% · 69,75 €/TRIM.") escribe
+  // el acrónimo en plural con una "s" final en minúscula, a diferencia de
+  // otras cabeceras del mismo documento ("NÚCLEO PASIVO — 51%",
+  // "MERCADOS EMERGENTES — 12,5%") que sí van enteramente en mayúsculas. Esa
+  // única letra minúscula hacía fallar la detección de "cabecera de sección"
+  // y la línea se colaba como una posición más, duplicando el peso de la
+  // materia prima ya capturada en el resumen.
+  it('reconoce "ETCs" (plural de acrónimo en minúscula) como cabecera de sección, no como una posición', () => {
+    const text = [
+      'Materias primas  7,75%  69,75 €/trim.',
+      'ETCs FÍSICOS — 7,75% · 69,75 €/TRIM.',
+      'iShares Physical Gold ETC 7,75%',
+    ].join('\n');
+    const portfolio = extractPositionsFromText(text, 'cartera.pdf');
+    const names = portfolio.positions.map((p) => p.name);
+    expect(names).not.toContain('ETCs FÍSICOS —');
+    const totalWeight = portfolio.positions.reduce((acc, p) => acc + (p.weightAsStated ?? 0), 0);
+    expect(totalWeight).toBeCloseTo(0.0775);
+  });
+});
