@@ -266,7 +266,15 @@ function tokenizeLine(line: string): LineTokens {
 // esa posición real se rechazaba por error como si fuera una cabecera.
 function esSeccionCabecera(nameCandidate: string, line: string): boolean {
   if (/\bEMPRESAS?\b/i.test(line)) return true;
-  const soloLetras = nameCandidate.replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ]/g, '');
+  // Un acrónimo en plural a veces lleva una "s" final en minúscula ("ETCs",
+  // "ETFs", "KPIs") aunque el resto de la palabra esté en mayúsculas — un
+  // convenio tipográfico habitual. Sin normalizar esa "s" antes de comprobar
+  // "todo en mayúsculas", una cabecera real como "ETCs FÍSICOS — 7,75% ·
+  // 69,75 €/TRIM." fallaba la detección por una única letra y se colaba como
+  // si fuera una posición individual (duplicando la que sí se había
+  // reconocido bien más arriba en el documento).
+  const conPluralesNormalizados = nameCandidate.replace(/\b([A-ZÁÉÍÓÚÑ]{2,})s\b/g, '$1S');
+  const soloLetras = conPluralesNormalizados.replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ]/g, '');
   const esTodoMayusculas = soloLetras.length >= 3 && soloLetras === soloLetras.toUpperCase() && soloLetras !== soloLetras.toLowerCase();
   return esTodoMayusculas && nameCandidate.trim().includes(' ');
 }
@@ -376,6 +384,23 @@ function looksLikePlainNameLine(line: string): boolean {
   return true;
 }
 
+// El caso inverso de looksLikePlainNameLine: algunos formatos de "tarjeta"
+// ponen el nombre completo junto con el peso en una línea ("iShares Core
+// MSCI World (Acc) 34%") y el ticker suelto, sin ningún otro dato, en la
+// línea SIGUIENTE ("IWDA"). Esa línea de ticker no genera posición por sí
+// sola (no trae ISIN/número/peso), así que sin recuperarla la posición
+// queda sin ticker — lo que además le impide beneficiarse del filtro de
+// duplicados de más abajo cuando el mismo instrumento aparece antes, en un
+// resumen, con el ticker ya escrito entre paréntesis en su nombre (p.ej.
+// "MSCI World (IWDA)"): sin el ticker recuperado aquí, ese resumen y este
+// detalle se contabilizaban como dos posiciones distintas, duplicando el
+// peso y el valor de la cartera.
+function looksLikeBareTickerLine(line: string): string | null {
+  const t = line.trim();
+  if (/^[A-Z]{2,6}$/.test(t) && !TICKER_STOPLIST.has(t)) return t;
+  return null;
+}
+
 function detectBaseCurrency(positions: Position[]): string {
   const counts = new Map<string, number>();
   for (const p of positions) {
@@ -415,6 +440,15 @@ export function extractPositionsFromText(text: string, sourceFileName: string): 
       // nombre real recuperado ("iShares Physical Gold ETC") puede
       // clasificarse correctamente.
       pos.assetClass = classifyAsset(pos.name, pos.isin);
+    }
+    // Caso inverso (ver looksLikeBareTickerLine): el nombre y el peso ya
+    // están completos en esta línea, pero el ticker quedó suelto en la
+    // línea siguiente. Se recupera solo cuando esta posición aún no tiene
+    // ticker propio, para no pisar uno ya extraído correctamente de la
+    // misma línea.
+    if (!pos.ticker && i + 1 < lines.length) {
+      const ticker = looksLikeBareTickerLine(lines[i + 1]!);
+      if (ticker) pos.ticker = ticker;
     }
     rawCandidates.push(pos);
   }
