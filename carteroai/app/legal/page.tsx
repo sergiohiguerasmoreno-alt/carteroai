@@ -12,6 +12,16 @@ export default function LegalPage() {
       <h1 className="mb-8 font-serif text-3xl text-ink-950">Aviso legal y privacidad</h1>
 
       <section className="mb-10">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-signal-teal">Identificación del titular</h2>
+        <ul className="list-inside list-disc space-y-2 text-sm leading-relaxed text-ink-700">
+          <li>Titular: Sergio Higueras</li>
+          <li>NIF: 7763679W</li>
+          <li>Domicilio: Valencia, España</li>
+          <li>Contacto: sergiohiguerasmoreno@gmail.com</li>
+        </ul>
+      </section>
+
+      <section className="mb-10">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-signal-teal">Qué es CarteroAI</h2>
         <p className="text-sm leading-relaxed text-ink-700">{DISCLAIMER_TEXT}</p>
       </section>
