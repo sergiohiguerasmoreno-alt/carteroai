@@ -120,7 +120,22 @@ export function ReportDocument({
             <Text style={styles.recTitle}>{r.targetLabel}</Text>
             {r.whatToChange && <Text style={styles.paragraph}>Qué cambiar: {r.whatToChange}</Text>}
             <Text style={styles.paragraph}>Por qué: {r.why}</Text>
-            {r.portfolioImpact && <Text style={styles.paragraph}>Impacto: {r.portfolioImpact}</Text>}
+            {r.problemSolved && <Text style={styles.paragraph}>Qué problema resuelve: {r.problemSolved}</Text>}
+            {r.riskReduced && <Text style={styles.paragraph}>Riesgo que reduce: {r.riskReduced}</Text>}
+            {r.riskIncreased && <Text style={styles.paragraph}>Riesgo que aumenta: {r.riskIncreased}</Text>}
+            {r.portfolioImpact && <Text style={styles.paragraph}>Impacto en la cartera: {r.portfolioImpact}</Text>}
+            {r.alternative && <Text style={styles.paragraph}>Alternativa: {r.alternative}</Text>}
+            {r.evidence.length > 0 && (
+              <View style={{ marginBottom: 6 }}>
+                <Text>Evidencia:</Text>
+                {r.evidence.map((e, i) => (
+                  <View style={styles.bullet} key={i}>
+                    <Text style={styles.bulletDot}>•</Text>
+                    <Text style={styles.bulletText}>{e}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
             {r.taxOrCostConsiderations && <Text style={styles.paragraph}>Consideraciones fiscales/coste: {r.taxOrCostConsiderations}</Text>}
             <Text style={styles.paragraph}>Confianza: {r.confidenceRationale}</Text>
           </View>
