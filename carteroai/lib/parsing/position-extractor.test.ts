@@ -437,3 +437,74 @@ describe('extractPositionsFromText — resumen por categoría + detalle por posi
     expect(totalWeight).toBeCloseTo(0.0775);
   });
 });
+
+describe('extractPositionsFromText — tarjeta "dispersa" en más de 3 líneas (nombre, peso, ticker+descripción e importe, cada uno en su propia línea)', () => {
+  // Bug real (cartera de un usuario): algunas posiciones de un documento
+  // "tarjeta" no siguen el patrón habitual de 2-3 líneas (nombre+peso en una
+  // línea, ticker suelto en la siguiente), sino que se fragmentan en 5:
+  // nombre solo, peso solo, ticker pegado a la descripción, importe solo, y
+  // una última línea de rentabilidad ("~0,5%") que no aporta datos nuevos.
+  // Ninguno de esos fragmentos por separado trae suficientes datos para que
+  // se reconozca como posición, así que la posición entera (p.ej.
+  // Mastercard) desaparecía en silencio del análisis.
+  it('recompone nombre, ticker, peso e importe repartidos en 4 líneas separadas', () => {
+    const text = [
+      'PAGOS & FINANZAS  3 EMPRESAS · 5,5% · 49,50 €/TRIM.',
+      'Mastercard',
+      '2%',
+      'MA Infraestructura pagos global · asset-light · márgenes top · yield',
+      '18 €/trim.',
+      '~0,5%',
+    ].join('\n');
+    const portfolio = extractPositionsFromText(text, 'cartera.pdf');
+    expect(portfolio.positions).toHaveLength(1);
+    const pos = portfolio.positions[0];
+    expect(pos?.name).toBe('Mastercard');
+    expect(pos?.ticker).toBe('MA');
+    expect(pos?.weightAsStated).toBeCloseTo(0.02);
+    expect(pos?.marketValue).toBeCloseTo(18);
+  });
+
+  // Bug relacionado, detectado al corregir el anterior: una primera versión
+  // de la recuperación no distinguía entre una línea de descripción de la
+  // MISMA tarjeta (que siempre trae un "·" separando cláusulas, p.ej. "MA
+  // Infraestructura pagos global · ...") y el nombre huérfano de la
+  // SIGUIENTE tarjeta (sin "·", p.ej. "Siemens"). Sin esa distinción, la
+  // ventana de búsqueda se "comía" el nombre de la tarjeta siguiente,
+  // mezclando sus datos con los de la anterior y perdiendo ambas posiciones
+  // como entidades correctas.
+  it('no mezcla los datos de una tarjeta dispersa con el nombre de la siguiente tarjeta', () => {
+    const text = [
+      'Iberdrola 2%',
+      'IBE',
+      'Mayor utility renovable del mundo · dividendo estable · yield ~4% 18 €/trim.',
+      'Siemens',
+      '1,5%',
+      'SIE Automatización industrial + digital twin · dividendo creciente · yield',
+      '13,50 €/trim.',
+      '~2,5%',
+    ].join('\n');
+    const portfolio = extractPositionsFromText(text, 'cartera.pdf');
+    const names = portfolio.positions.map((p) => p.name);
+    expect(names).toContain('Iberdrola');
+    expect(names).toContain('Siemens');
+    const siemens = portfolio.positions.find((p) => p.name === 'Siemens');
+    expect(siemens?.ticker).toBe('SIE');
+    expect(siemens?.weightAsStated).toBeCloseTo(0.015);
+    expect(siemens?.marketValue).toBeCloseTo(13.5);
+  });
+
+  // Bug relacionado: un fragmento suelto sin relación con ninguna posición
+  // real (p.ej. "/mes", resto partido de "300 €/mes" en la cabecera del
+  // documento) no debe tratarse como el nombre de una tarjeta dispersa solo
+  // porque, por casualidad, la línea siguiente sí trae peso e importe (p.ej.
+  // la fila-resumen "14 acciones 28,75% 258,75 €/trim."). Fabricar una
+  // posición a partir de esa combinación infla el peso total de la cartera
+  // con una posición inventada.
+  it('no fabrica una posición a partir de un fragmento suelto que no es un nombre real', () => {
+    const text = ['300€', '/mes', '14 acciones  28,75%  258,75 €/trim.'].join('\n');
+    const portfolio = extractPositionsFromText(text, 'cartera.pdf');
+    const names = portfolio.positions.map((p) => p.name);
+    expect(names).not.toContain('/mes');
+  });
+});
