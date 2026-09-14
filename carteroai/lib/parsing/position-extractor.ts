@@ -401,6 +401,96 @@ function looksLikeBareTickerLine(line: string): string | null {
   return null;
 }
 
+// Variante de looksLikeBareTickerLine para cuando el ticker no está solo en
+// su línea, sino pegado al principio de una línea de descripción (p.ej. "MA
+// Infraestructura pagos global · asset-light..."). Solo mira la primera
+// palabra: si el resto de la línea no fuera descripción, esta comprobación
+// no se usaría (ver tryRecoverScatteredCard, que solo la aplica dentro de
+// una tarjeta ya reconocida como fragmentada).
+function extractLeadingTicker(line: string): string | undefined {
+  const words = line.trim().split(/\s+/);
+  const first = words[0];
+  if (first && /^[A-Z]{2,6}$/.test(first) && !TICKER_STOPLIST.has(first)) return first;
+  return undefined;
+}
+
+const MAX_SCATTERED_WINDOW = 6;
+
+// Algunos formatos de "tarjeta" fragmentan una posición en más de las 2-3
+// líneas que looksLikePlainNameLine/looksLikeBareTickerLine ya saben
+// recomponer: el nombre en su propia línea, el peso en la siguiente, el
+// ticker pegado a una línea de descripción, y el importe en otra línea más
+// (p.ej. "Mastercard" / "2%" / "MA Infraestructura pagos global · ..." /
+// "18 €/trim."). Ninguna de esas líneas por separado trae suficientes datos
+// para que buildPosition la reconozca como posición, así que la posición
+// entera se perdía en silencio. Esta función solo se invoca cuando la línea
+// de arranque ya parece un nombre huérfano (looksLikePlainNameLine) y
+// buildPosition no pudo construir una posición a partir de ella sola: crece
+// una ventana de líneas siguientes hasta encontrar tanto un peso como un
+// importe, y entonces junta todo en una única línea sintética que sí puede
+// pasar por el mismo buildPosition ya probado, en vez de duplicar su lógica.
+//
+// Dos salvaguardas evitan crear posiciones falsas a partir de fragmentos de
+// ticker sueltos que YA se procesan (y descartan) por otras vías, como las
+// líneas "IWDA" o "GOO" que quedan huérfanas tras recuperarse como ticker de
+// la posición anterior: (1) la ventana se corta en cuanto una línea, por sí
+// sola, ya construye una posición completa (señal de que hemos llegado a la
+// SIGUIENTE tarjeta, no a más fragmentos de la actual); (2) sin un peso
+// propio encontrado en la ventana, no se construye ninguna posición — un
+// importe suelto sin peso no es señal suficiente.
+function tryRecoverScatteredCard(lines: string[], startIndex: number): { position: Position; consumedUpToIndex: number } | null {
+  const name = cleanName(lines[startIndex]!);
+  if (!name || name.length < 2) return null;
+  // Un nombre real de instrumento siempre empieza por una letra. Sin este
+  // filtro, fragmentos sueltos sin relación con ninguna posición (p.ej.
+  // "/mes", resto partido de "300 €/mes" en la cabecera del documento)
+  // también pasaban looksLikePlainNameLine y se intentaban recomponer como
+  // si fueran el nombre de una tarjeta fragmentada, fabricando una posición
+  // inventada a partir de datos de una línea de resumen no relacionada.
+  if (!/^[A-Za-zÁÉÍÓÚÑáéíóúñ]/.test(name)) return null;
+
+  let end = startIndex + 1;
+  let foundWeight = false;
+  let foundAmount = false;
+  while (end < lines.length && end - startIndex <= MAX_SCATTERED_WINDOW) {
+    if (foundWeight && foundAmount) break;
+    const line = lines[end]!;
+    if (BOILERPLATE_RE.test(line)) break;
+    if (buildPosition(line)) break; // ya es una posición completa por sí sola: es la siguiente tarjeta
+    // Una línea que looksLikePlainNameLine detecta como nombre huérfano
+    // nuevo (p.ej. "Siemens" justo después de la tarjeta de Iberdrola)
+    // corta la ventana AQUÍ, salvo que sea en realidad una línea de
+    // descripción con el ticker pegado al principio dentro de la MISMA
+    // tarjeta (p.ej. "MA Infraestructura pagos global · asset-light..."),
+    // que siempre trae al menos un "·" separando cláusulas. Sin esta
+    // distinción, la ventana se comía por error el nombre de la siguiente
+    // tarjeta real, mezclando sus datos con los de la tarjeta actual.
+    if (looksLikePlainNameLine(line) && !line.includes('·')) break;
+    const t = tokenizeLine(line);
+    if (t.weight !== undefined) foundWeight = true;
+    if (t.numbers.length > 0) foundAmount = true;
+    end++;
+  }
+  if (!foundWeight) return null;
+  if (end === startIndex + 1) return null;
+
+  const windowLines = lines.slice(startIndex + 1, end);
+  const merged = [name, ...windowLines].join(' ');
+  const pos = buildPosition(merged);
+  if (!pos) return null;
+  pos.rawLine = [lines[startIndex], ...windowLines].join(' | ');
+  if (!pos.ticker) {
+    for (const wl of windowLines) {
+      const ticker = extractLeadingTicker(wl);
+      if (ticker) {
+        pos.ticker = ticker;
+        break;
+      }
+    }
+  }
+  return { position: pos, consumedUpToIndex: end - 1 };
+}
+
 function detectBaseCurrency(positions: Position[]): string {
   const counts = new Map<string, number>();
   for (const p of positions) {
@@ -426,7 +516,20 @@ export function extractPositionsFromText(text: string, sourceFileName: string): 
   const rawCandidates: Position[] = [];
   for (let i = 0; i < lines.length; i++) {
     const pos = buildPosition(lines[i]!);
-    if (!pos) continue;
+    if (!pos) {
+      // Ver tryRecoverScatteredCard: solo se intenta cuando la línea parece
+      // un nombre huérfano de tarjeta (no cuando es un fragmento de ticker
+      // suelto sin nombre, que looksLikePlainNameLine ya filtra al exigir
+      // longitud mínima de letras).
+      if (looksLikePlainNameLine(lines[i]!)) {
+        const recovered = tryRecoverScatteredCard(lines, i);
+        if (recovered) {
+          rawCandidates.push(recovered.position);
+          i = recovered.consumedUpToIndex;
+        }
+      }
+      continue;
+    }
     // Si el nombre extraído es en realidad solo el ticker (la línea de datos
     // no traía un nombre propio, p.ej. "NVDA  1.5%"), el nombre real del
     // instrumento suele estar en la línea inmediatamente anterior cuando el
