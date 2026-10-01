@@ -2,17 +2,17 @@ import 'server-only';
 import { neon } from '@neondatabase/serverless';
 
 /**
- * Persistencia de los "pedidos" (el pago de 9,99€ que desbloquea el informe
- * completo), en la misma base de datos Postgres que ya usa la aplicación
- * para `leads` (ver lib/leads/store.ts) — misma variable de entorno
+ * Persistencia de los "informes bloqueados": CarteroAI no cobra nada por el
+ * informe — se desbloquea compartiendo la aplicación con alguien más (ver
+ * app/api/orders/[id]/referral-hit y components/ReferralTracker.tsx) — pero
+ * sigue haciendo falta guardar el informe en algún sitio del lado del
+ * servidor mientras tanto: el enlace de referido que se comparte vuelve a
+ * cargar la aplicación desde cero en el navegador de otra persona, así que
+ * el estado de React del usuario original (análisis, cartera, perfil) no
+ * sirve para decidir si desbloquear o no — hace falta una fuente de verdad
+ * compartida. Misma base de datos Postgres que ya usa la aplicación para
+ * `leads` (ver lib/leads/store.ts) — misma variable de entorno
  * (DATABASE_URL/POSTGRES_URL), sin ninguna configuración nueva que hacer.
- *
- * Por qué se guarda el informe entero (`payload`) aquí: Stripe Checkout es
- * una página alojada fuera de nuestro dominio, así que al volver del pago
- * el estado de React de la página se ha perdido por completo (recarga
- * completa). Guardar aquí el análisis, la cartera y el perfil del inversor
- * — generados en el momento de llegar al muro de pago — permite reconstruir
- * el informe al volver, sin tener que repetir todo el proceso.
  *
  * El `id` de cada pedido se genera con nanoid() (alta entropía) y actúa
  * como el único control de acceso a ese informe: quien tenga el enlace
@@ -26,13 +26,13 @@ export interface OrderPayload {
   profile: unknown;
 }
 
-export type OrderStatus = 'pending' | 'paid' | 'free_shared';
+export type OrderStatus = 'pending' | 'unlocked';
 
 export interface OrderRow {
   id: string;
   status: OrderStatus;
   payload: OrderPayload;
-  stripeSessionId: string | null;
+  referralHits: number;
 }
 
 export interface StoreResult {
@@ -68,9 +68,7 @@ async function getSql(connectionString: string) {
         id TEXT PRIMARY KEY,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         status TEXT NOT NULL DEFAULT 'pending',
-        amount_cents INTEGER NOT NULL,
-        currency TEXT NOT NULL,
-        stripe_session_id TEXT,
+        referral_hits INTEGER NOT NULL DEFAULT 0,
         payload JSONB NOT NULL
       )
     `;
@@ -79,12 +77,7 @@ async function getSql(connectionString: string) {
   return sql;
 }
 
-export async function createOrder(
-  id: string,
-  payload: OrderPayload,
-  amountCents: number,
-  currency: string,
-): Promise<StoreResult> {
+export async function createOrder(id: string, payload: OrderPayload): Promise<StoreResult> {
   const connectionString = getConnectionString();
   if (!connectionString) {
     return { ok: false, reason: 'No hay ninguna base de datos Postgres conectada a este proyecto.' };
@@ -92,8 +85,8 @@ export async function createOrder(
   try {
     const sql = await getSql(connectionString);
     await sql`
-      INSERT INTO orders (id, status, amount_cents, currency, payload)
-      VALUES (${id}, 'pending', ${amountCents}, ${currency}, ${JSON.stringify(payload)}::jsonb)
+      INSERT INTO orders (id, status, payload)
+      VALUES (${id}, 'pending', ${JSON.stringify(payload)}::jsonb)
     `;
     return { ok: true };
   } catch (err) {
@@ -107,51 +100,44 @@ export async function getOrder(id: string): Promise<OrderRow | null> {
   try {
     const sql = await getSql(connectionString);
     const rows = await sql`
-      SELECT id, status, payload, stripe_session_id FROM orders WHERE id = ${id} LIMIT 1
+      SELECT id, status, payload, referral_hits FROM orders WHERE id = ${id} LIMIT 1
     `;
-    const row = rows[0] as { id: string; status: OrderStatus; payload: OrderPayload; stripe_session_id: string | null } | undefined;
+    const row = rows[0] as { id: string; status: OrderStatus; payload: OrderPayload; referral_hits: number } | undefined;
     if (!row) return null;
-    return { id: row.id, status: row.status, payload: row.payload, stripeSessionId: row.stripe_session_id };
+    return { id: row.id, status: row.status, payload: row.payload, referralHits: row.referral_hits };
   } catch {
     return null;
   }
 }
 
-export async function setOrderStripeSession(id: string, stripeSessionId: string): Promise<StoreResult> {
+/**
+ * Se llama cuando alguien abre el enlace de referido de un informe (ver
+ * components/ReferralTracker.tsx, montado en la portada) — no cuando el
+ * propio dueño del informe pulsa "compartir". Esa es la diferencia clave:
+ * un clic en "compartir" solo demuestra que alguien abrió una ventana de
+ * WhatsApp/X o copió un enlace; esto demuestra que ESE enlace se ha
+ * cargado de verdad en algún sitio. Sigue sin ser una prueba perfecta de
+ * que ha sido "un amigo" concreto (nada que no exija cuentas de usuario
+ * puede serlo), pero ya no basta con pulsar un botón: el enlace tiene que
+ * abrirse en otro sitio para que esto se ejecute.
+ *
+ * Desbloquea el pedido en el mismo paso (si seguía 'pending') en vez de
+ * exigir una llamada aparte: en cuanto se registra la primera apertura
+ * real del enlace, el informe queda disponible.
+ */
+export async function recordReferralHit(id: string): Promise<StoreResult> {
   const connectionString = getConnectionString();
   if (!connectionString) return { ok: false, reason: 'No hay ninguna base de datos Postgres conectada a este proyecto.' };
   try {
     const sql = await getSql(connectionString);
-    await sql`UPDATE orders SET stripe_session_id = ${stripeSessionId} WHERE id = ${id} AND status = 'pending'`;
+    await sql`
+      UPDATE orders
+      SET referral_hits = referral_hits + 1,
+          status = CASE WHEN status = 'pending' THEN 'unlocked' ELSE status END
+      WHERE id = ${id}
+    `;
     return { ok: true };
   } catch (err) {
-    return { ok: false, reason: err instanceof Error ? err.message : 'Error desconocido al guardar la sesión de pago.' };
-  }
-}
-
-// Solo transiciona pedidos todavía 'pending': si ya estaba 'paid' o
-// 'free_shared' (doble clic, verificación repetida...) no hace nada y se
-// trata como éxito igualmente — la operación es idempotente a propósito.
-export async function markOrderPaid(id: string): Promise<StoreResult> {
-  const connectionString = getConnectionString();
-  if (!connectionString) return { ok: false, reason: 'No hay ninguna base de datos Postgres conectada a este proyecto.' };
-  try {
-    const sql = await getSql(connectionString);
-    await sql`UPDATE orders SET status = 'paid' WHERE id = ${id} AND status = 'pending'`;
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, reason: err instanceof Error ? err.message : 'Error desconocido al confirmar el pago.' };
-  }
-}
-
-export async function markOrderFreeShared(id: string): Promise<StoreResult> {
-  const connectionString = getConnectionString();
-  if (!connectionString) return { ok: false, reason: 'No hay ninguna base de datos Postgres conectada a este proyecto.' };
-  try {
-    const sql = await getSql(connectionString);
-    await sql`UPDATE orders SET status = 'free_shared' WHERE id = ${id} AND status = 'pending'`;
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, reason: err instanceof Error ? err.message : 'Error desconocido al desbloquear el informe.' };
+    return { ok: false, reason: err instanceof Error ? err.message : 'Error desconocido al registrar la visita de referido.' };
   }
 }
