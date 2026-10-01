@@ -77,6 +77,15 @@ export const LeadRequestSchema = z.object({
   }),
 });
 
+// El análisis ya ha sido calculado por /api/analyze; aquí solo se valida su
+// forma general (no se recalcula nada), igual que en /api/report/pdf — este
+// esquema se usa para crear el "pedido" que luego desbloquea el informe.
+export const CreateOrderRequestSchema = z.object({
+  analysis: z.record(z.string(), z.any()),
+  portfolio: PortfolioSchema,
+  profile: InvestorProfileSchema,
+});
+
 export const FeedbackRequestSchema = z.object({
   reportId: z.string().min(1).max(64),
   helpful: z.boolean(),
