@@ -115,7 +115,17 @@ export function ReportDocument({
         <Text style={styles.sectionTitle}>Sugerencias</Text>
         {nonMaintainRecs.length === 0 && <Text style={styles.paragraph}>No se ha identificado ninguna posición que requiera cambio, revisión o vigilancia adicional.</Text>}
         {nonMaintainRecs.map((r) => (
-          <View style={styles.recCard} key={r.id} wrap={false}>
+          // Antes esta tarjeta llevaba wrap={false}: obliga a @react-pdf/renderer a
+          // mantener todo su contenido en una sola página sin paginar. Con una
+          // recomendación larga (varias líneas de "por qué", riesgos, alternativa,
+          // evidencia...) cuya altura supera una página A4, el resultado no era un
+          // corte limpio: todo el contenido se apilaba superpuesto en una sola
+          // página, ilegible — parecía que "faltaba" la información del botón de
+          // detalle, cuando en realidad estaba ahí pero amontonada unas líneas
+          // encima de otras. Sin wrap={false}, la tarjeta puede partirse de forma
+          // normal entre dos páginas si hace falta: una tarjeta partida en dos
+          // páginas es mucho mejor que una tarjeta entera ilegible.
+          <View style={styles.recCard} key={r.id}>
             <Text style={styles.badge}>{CATEGORY_LABEL[r.category]} · Confianza {r.confidence.toUpperCase()}</Text>
             <Text style={styles.recTitle}>{r.targetLabel}</Text>
             {r.whatToChange && <Text style={styles.paragraph}>Qué cambiar: {r.whatToChange}</Text>}
