@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { InvestorProfile, Portfolio, PortfolioAnalysis } from '@/lib/types';
 import type { AnswerMap } from '@/lib/questions/types';
@@ -9,11 +9,18 @@ import { UploadStep } from '@/components/flow/UploadStep';
 import { StagedProcessing } from '@/components/flow/StagedProcessing';
 import { QuestionsStep } from '@/components/flow/QuestionsStep';
 import { EmailGateStep } from '@/components/flow/EmailGateStep';
+import { PaywallStep } from '@/components/flow/PaywallStep';
 import { ReportView } from '@/components/report/ReportView';
 
-type Phase = 'upload' | 'parsing' | 'questions' | 'email-gate' | 'analyzing' | 'report' | 'error';
+type Phase = 'upload' | 'parsing' | 'questions' | 'email-gate' | 'analyzing' | 'resuming' | 'report' | 'error';
 
 const MAX_UPLOAD_MB = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? 15);
+
+interface OrderPayload {
+  analysis: PortfolioAnalysis;
+  portfolio: Portfolio;
+  profile: InvestorProfile;
+}
 
 export default function AnalizarPage() {
   const [phase, setPhase] = useState<Phase>('upload');
@@ -24,6 +31,75 @@ export default function AnalizarPage() {
   const [analysis, setAnalysis] = useState<PortfolioAnalysis | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [emailSubmitting, setEmailSubmitting] = useState(false);
+  // Muro de pago: `orderId` identifica el pedido de 9,99€ asociado a este
+  // informe; `unlocked` decide si se muestra el informe completo
+  // (ReportView) o solo la vista previa con las opciones de pago (ver
+  // PaywallStep). Si Stripe no está configurado, nunca se crea un pedido y
+  // `unlocked` se queda en `true` desde el principio (informe gratis, sin
+  // muro) — ver handleEmailSubmit.
+  const [orderId, setOrderId] = useState<string | null>(null);
+  const [unlocked, setUnlocked] = useState(true);
+
+  // Al volver de Stripe Checkout (o si el usuario recarga la página con un
+  // pedido en la URL), recuperamos el pedido por su id en vez de repetir
+  // todo el proceso de subida + cuestionario: ver app/api/orders/[id] y
+  // app/api/orders/[id]/verify. El estado de React se pierde por completo
+  // en una redirección a un dominio externo (Stripe), así que esto es
+  // necesario, no solo una comodidad.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const resumeOrderId = params.get('order');
+    if (!resumeOrderId) return;
+    const sessionId = params.get('session_id');
+
+    window.history.replaceState(null, '', window.location.pathname);
+    setPhase('resuming');
+
+    (async () => {
+      try {
+        if (sessionId) {
+          const res = await fetch(`/api/orders/${resumeOrderId}/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId }),
+          });
+          const data = await res.json();
+          if (res.ok && data.unlocked && data.payload) {
+            applyOrderPayload(data.payload as OrderPayload);
+            setOrderId(resumeOrderId);
+            setUnlocked(true);
+            setPhase('report');
+            return;
+          }
+        }
+
+        // El pago no se verificó (p.ej. el usuario canceló en Stripe y
+        // volvió con "atrás"): recuperamos igualmente el pedido para
+        // volver a mostrar el muro de pago con su informe ya generado, sin
+        // obligarle a repetir todo el proceso.
+        const res2 = await fetch(`/api/orders/${resumeOrderId}`);
+        if (!res2.ok) {
+          setPhase('upload');
+          return;
+        }
+        const data2 = await res2.json();
+        applyOrderPayload(data2.payload as OrderPayload);
+        setOrderId(resumeOrderId);
+        setUnlocked(data2.status === 'paid' || data2.status === 'free_shared');
+        setPhase('report');
+      } catch {
+        setPhase('upload');
+      }
+    })();
+    // Solo debe ejecutarse una vez al montar, leyendo la URL inicial.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function applyOrderPayload(payload: OrderPayload) {
+    setPortfolio(payload.portfolio);
+    setProfile(payload.profile);
+    setAnalysis(payload.analysis);
+  }
 
   async function handleFileSelected(file: File) {
     setErrorMessage(null);
@@ -102,7 +178,30 @@ export default function AnalizarPage() {
         setPhase('error');
         return;
       }
-      setAnalysis(data.analysis);
+      const newAnalysis = data.analysis as PortfolioAnalysis;
+      setAnalysis(newAnalysis);
+
+      // Crea el pedido que decide si el informe se enseña directo (gratis,
+      // p.ej. si Stripe aún no está configurado) o detrás del muro de pago.
+      // Un fallo aquí no debe dejar al usuario sin nada tras generar su
+      // análisis: ante cualquier problema, se enseña el informe gratis.
+      try {
+        const orderRes = await fetch('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ analysis: newAnalysis, portfolio, profile }),
+        });
+        const orderData = await orderRes.json();
+        if (orderRes.ok && orderData.locked && orderData.orderId) {
+          setOrderId(orderData.orderId);
+          setUnlocked(false);
+        } else {
+          setUnlocked(true);
+        }
+      } catch {
+        setUnlocked(true);
+      }
+
       setPhase('report');
     } catch {
       setErrorMessage('No se ha podido conectar con el servidor. Inténtalo de nuevo en unos minutos.');
@@ -119,7 +218,13 @@ export default function AnalizarPage() {
     setProfile(null);
     setAnalysis(null);
     setErrorMessage(null);
+    setOrderId(null);
+    setUnlocked(true);
     setPhase('upload');
+  }
+
+  if (phase === 'resuming') {
+    return <StagedProcessing title="Recuperando tu informe…" stages={['Comprobando el pago', 'Preparando tu informe']} stepDurationMs={900} />;
   }
 
   if (phase === 'upload') {
@@ -162,6 +267,9 @@ export default function AnalizarPage() {
   }
 
   if (phase === 'report' && analysis && portfolio && profile) {
+    if (!unlocked && orderId) {
+      return <PaywallStep analysis={analysis} orderId={orderId} onUnlocked={() => setUnlocked(true)} />;
+    }
     return <ReportView analysis={analysis} portfolio={portfolio} profile={profile} onRestart={restart} />;
   }
 
