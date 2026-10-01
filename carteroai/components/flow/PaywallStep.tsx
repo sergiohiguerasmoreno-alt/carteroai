@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PortfolioAnalysis } from '@/lib/types';
 import { Section } from '@/components/report/Section';
 
@@ -12,92 +12,116 @@ interface Props {
 
 const SHARE_TEXT = 'He analizado mi cartera de inversión gratis con CarteroAI. Pruébalo tú también:';
 
+// No hay ninguna opción de pago en la aplicación: el informe completo se
+// desbloquea únicamente compartiendo CarteroAI. Este componente conserva el
+// nombre "PaywallStep" (así se llamaba cuando sí existía un muro de pago)
+// para no tener que borrar y volver a crear el archivo, pero no hay ningún
+// "muro" aquí — solo la pantalla de "comparte para desbloquear".
+//
+// La parte importante está en cómo se desbloquea: NO basta con pulsar el
+// botón de compartir. El enlace que se comparte lleva un identificador de
+// referido (`?ref=<id>`) y el desbloqueo solo ocurre del lado del servidor
+// cuando ESE enlace se abre de verdad en otro sitio (ver
+// components/ReferralTracker.tsx, montado en la portada, y
+// app/api/orders/[id]/referral-hit). Un clic en "compartir" aquí solo abre
+// WhatsApp/X o copia el enlace — eso por sí solo nunca desbloquea nada.
 export function PaywallStep({ analysis, orderId, onUnlocked }: Props) {
-  const [paying, setPaying] = useState(false);
-  const [sharing, setSharing] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showShareOptions, setShowShareOptions] = useState(false);
-  // No desbloqueamos en el mismo clic que abre WhatsApp/X/el diálogo nativo
-  // de compartir: eso solo demuestra que se ha pulsado un botón, no que el
-  // enlace haya llegado a nadie. En su lugar, tras esa acción pedimos una
-  // confirmación explícita y separada ("ya se lo he enviado a un amigo")
-  // antes de desbloquear. Sigue siendo un sistema de confianza — no hay
-  // forma de comprobar de verdad que el mensaje llegó — pero exige un paso
-  // deliberado más, no solo pulsar el botón de compartir.
-  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
+  const [sharedOnce, setSharedOnce] = useState(false);
+  const [notYetDetected, setNotYetDetected] = useState(false);
 
   const { executiveSummary, score, recommendations } = analysis;
   const previewDoingWell = executiveSummary.doingWell.slice(0, 1);
   const nonMaintainCount = recommendations.filter((r) => r.category !== 'maintain').length;
 
-  async function handlePay() {
-    setError(null);
-    setPaying(true);
+  const referralUrl = typeof window !== 'undefined' ? `${window.location.origin}/?ref=${orderId}` : '';
+
+  // Guarda qué pedido es "nuestro": components/ReferralTracker.tsx lo
+  // consulta para no contar como una apertura real del enlace si el propio
+  // dueño del informe vuelve a abrir su enlace de referido en el mismo
+  // navegador (p.ej. para comprobar que funciona). No es infalible —basta
+  // con usar otro navegador o modo incógnito para saltárselo— pero evita el
+  // caso más simple de autodesbloqueo accidental o deliberado.
+  useEffect(() => {
     try {
-      const res = await fetch(`/api/orders/${orderId}/checkout`, { method: 'POST' });
+      window.localStorage.setItem('carteroai-own-order', orderId);
+    } catch {
+      // localStorage puede no estar disponible (navegación privada,
+      // almacenamiento bloqueado...): no es crítico, simplemente no se
+      // aplica esa comprobación extra.
+    }
+  }, [orderId]);
+
+  async function checkUnlocked(showNotYetMessage: boolean) {
+    setChecking(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/free-share`);
       const data = await res.json();
-      if (!res.ok || !data.url) throw new Error(data.error ?? 'No se ha podido iniciar el pago.');
-      window.location.href = data.url;
+      if (!res.ok) throw new Error(data.error ?? 'No se ha podido comprobar el estado del informe.');
+      if (data.unlocked) {
+        setNotYetDetected(false);
+        onUnlocked();
+      } else if (showNotYetMessage) {
+        setNotYetDetected(true);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se ha podido iniciar el pago. Inténtalo de nuevo.');
-      setPaying(false);
+      if (showNotYetMessage) {
+        setError(err instanceof Error ? err.message : 'No se ha podido comprobar el estado del informe.');
+      }
+    } finally {
+      setChecking(false);
     }
   }
 
-  async function unlockFree() {
-    setSharing(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/orders/${orderId}/free-share`, { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok || !data.unlocked) throw new Error(data.error ?? 'No se ha podido desbloquear el informe.');
-      onUnlocked();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se ha podido desbloquear el informe. Inténtalo de nuevo.');
-    } finally {
-      setSharing(false);
-    }
-  }
+  // Sondeo automático: en cuanto se ha compartido al menos una vez, se
+  // comprueba el estado cada pocos segundos sin que el usuario tenga que
+  // pulsar nada — en cuanto su amigo abra el enlace, el informe se
+  // desbloquea solo, en esta misma pantalla.
+  const pollingRef = useRef(false);
+  useEffect(() => {
+    if (!sharedOnce) return;
+    pollingRef.current = true;
+    const interval = setInterval(() => {
+      if (pollingRef.current) checkUnlocked(false);
+    }, 5000);
+    return () => {
+      pollingRef.current = false;
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharedOnce]);
 
   async function handleShareClick() {
-    const shareUrl = window.location.origin;
     if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
       try {
-        await navigator.share({ title: 'CarteroAI', text: SHARE_TEXT, url: shareUrl });
+        await navigator.share({ title: 'CarteroAI', text: SHARE_TEXT, url: referralUrl });
       } catch {
         // El usuario ha cerrado el diálogo nativo de compartir sin elegir
-        // nada: no lo tratamos como un error, simplemente no desbloqueamos
-        // ni pedimos confirmación.
+        // nada: no lo tratamos como si hubiera compartido.
         return;
       }
-      // navigator.share solo resuelve si el usuario ha completado el envío
-      // a través del selector del sistema (si cancela, cae en el catch de
-      // arriba), así que esto ya es una señal más fuerte que un simple
-      // clic — pero aun así pedimos la confirmación explícita, igual que
-      // en el resto de canales, para ser consistentes.
-      setAwaitingConfirmation(true);
+      setSharedOnce(true);
       return;
     }
     setShowShareOptions((v) => !v);
   }
 
   function shareVia(channel: 'whatsapp' | 'x' | 'copy') {
-    const shareUrl = window.location.origin;
     if (channel === 'whatsapp') {
-      window.open(`https://wa.me/?text=${encodeURIComponent(`${SHARE_TEXT} ${shareUrl}`)}`, '_blank', 'noopener,noreferrer');
+      window.open(`https://wa.me/?text=${encodeURIComponent(`${SHARE_TEXT} ${referralUrl}`)}`, '_blank', 'noopener,noreferrer');
     } else if (channel === 'x') {
       window.open(
-        `https://twitter.com/intent/tweet?text=${encodeURIComponent(SHARE_TEXT)}&url=${encodeURIComponent(shareUrl)}`,
+        `https://twitter.com/intent/tweet?text=${encodeURIComponent(SHARE_TEXT)}&url=${encodeURIComponent(referralUrl)}`,
         '_blank',
         'noopener,noreferrer',
       );
     } else if (channel === 'copy') {
-      navigator.clipboard?.writeText(shareUrl).catch(() => undefined);
+      navigator.clipboard?.writeText(referralUrl).catch(() => undefined);
     }
-    // No desbloqueamos aquí: solo se ha abierto la ventana de WhatsApp/X (o
-    // copiado el enlace), no se ha confirmado que el mensaje se haya
-    // enviado de verdad. Lo siguiente es pedir esa confirmación.
-    setAwaitingConfirmation(true);
+    setSharedOnce(true);
   }
 
   return (
@@ -136,60 +160,64 @@ export function PaywallStep({ analysis, orderId, onUnlocked }: Props) {
         </div>
       </Section>
 
-      <div className="mt-2 flex flex-col gap-4 sm:flex-row sm:items-stretch">
-        <div className="flex-1 rounded-xl border border-ink-100 p-6">
-          <p className="mb-1 text-sm font-semibold text-ink-950">Desbloquea el informe completo</p>
-          <p className="mb-4 text-sm text-ink-600">Todas las recomendaciones, el análisis completo y el PDF descargable.</p>
-          <button onClick={handlePay} disabled={paying} className="btn-primary w-full">
-            {paying ? 'Redirigiendo al pago…' : 'Desbloquear por 9,99 €'}
-          </button>
-        </div>
-        <div className="flex-1 rounded-xl border border-ink-100 p-6">
-          <p className="mb-1 text-sm font-semibold text-ink-950">O consíguelo gratis</p>
-          <p className="mb-4 text-sm text-ink-600">Comparte CarteroAI con un amigo y desbloquea tu informe sin pagar nada.</p>
+      <div className="mt-2 rounded-xl border border-ink-100 p-6">
+        <p className="mb-1 text-sm font-semibold text-ink-950">Desbloquea el informe completo</p>
+        <p className="mb-4 text-sm text-ink-600">
+          CarteroAI es gratis. Comparte la aplicación con un amigo y, en cuanto abra tu enlace, tu informe se
+          desbloqueará automáticamente — todas las recomendaciones, el análisis completo y el PDF descargable.
+        </p>
 
-          {!awaitingConfirmation && (
-            <>
-              <button onClick={handleShareClick} disabled={sharing} className="btn-secondary w-full">
-                Compartir con un amigo
-              </button>
-              {showShareOptions && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button onClick={() => shareVia('whatsapp')} className="btn-secondary px-3 py-1.5 text-xs">
-                    WhatsApp
-                  </button>
-                  <button onClick={() => shareVia('x')} className="btn-secondary px-3 py-1.5 text-xs">
-                    X
-                  </button>
-                  <button onClick={() => shareVia('copy')} className="btn-secondary px-3 py-1.5 text-xs">
-                    Copiar enlace
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-
-          {awaitingConfirmation && (
-            <div className="rounded-lg border border-signal-teal/30 bg-signal-teal/5 p-4">
-              <p className="mb-3 text-sm text-ink-700">¿Ya le has enviado el enlace a tu amigo?</p>
-              <div className="flex flex-wrap gap-2">
-                <button onClick={unlockFree} disabled={sharing} className="btn-primary px-4 py-2 text-xs">
-                  {sharing ? 'Desbloqueando…' : 'Sí, ya lo he compartido'}
+        {!sharedOnce && (
+          <>
+            <button onClick={handleShareClick} className="btn-primary w-full">
+              Compartir con un amigo
+            </button>
+            {showShareOptions && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button onClick={() => shareVia('whatsapp')} className="btn-secondary px-3 py-1.5 text-xs">
+                  WhatsApp
                 </button>
-                <button
-                  onClick={() => {
-                    setAwaitingConfirmation(false);
-                    setShowShareOptions(false);
-                  }}
-                  disabled={sharing}
-                  className="btn-secondary px-4 py-2 text-xs"
-                >
-                  Todavía no
+                <button onClick={() => shareVia('x')} className="btn-secondary px-3 py-1.5 text-xs">
+                  X
+                </button>
+                <button onClick={() => shareVia('copy')} className="btn-secondary px-3 py-1.5 text-xs">
+                  Copiar enlace
                 </button>
               </div>
+            )}
+          </>
+        )}
+
+        {sharedOnce && (
+          <div className="rounded-lg border border-signal-teal/30 bg-signal-teal/5 p-4">
+            <p className="mb-3 text-sm text-ink-700">
+              En cuanto tu amigo abra el enlace que has compartido, tu informe se desbloqueará solo — no hace falta
+              que hagas nada más. También puedes comprobarlo tú mismo:
+            </p>
+            {notYetDetected && (
+              <p className="mb-3 text-sm text-signal-amber">
+                Todavía no hemos detectado que se haya abierto tu enlace en otro sitio. Si ya lo has enviado, puede
+                tardar unos segundos — si no, prueba a compartirlo de nuevo.
+              </p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => checkUnlocked(true)} disabled={checking} className="btn-primary px-4 py-2 text-xs">
+                {checking ? 'Comprobando…' : 'Comprobar ahora'}
+              </button>
+              <button
+                onClick={() => {
+                  setSharedOnce(false);
+                  setShowShareOptions(false);
+                  setNotYetDetected(false);
+                }}
+                disabled={checking}
+                className="btn-secondary px-4 py-2 text-xs"
+              >
+                Compartir de nuevo
+              </button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {error && <p className="mt-4 text-sm text-signal-rose">{error}</p>}
