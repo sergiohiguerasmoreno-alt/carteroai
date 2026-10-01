@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { ReferralTracker } from '@/components/ReferralTracker';
 
 const PRINCIPLES = [
   {
@@ -18,6 +19,9 @@ const PRINCIPLES = [
 export default function LandingPage() {
   return (
     <main>
+      {/* No renderiza nada: registra la apertura de un enlace de referido
+          (?ref=<id>) si lo hay — ver components/ReferralTracker.tsx. */}
+      <ReferralTracker />
       <header className="container-app flex items-center justify-between py-6">
         <span className="font-serif text-lg font-semibold tracking-tight text-ink-950">CarteroAI</span>
         <Link href="/analizar" className="btn-ghost">
