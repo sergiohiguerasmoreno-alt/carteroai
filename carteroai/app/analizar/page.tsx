@@ -31,61 +31,38 @@ export default function AnalizarPage() {
   const [analysis, setAnalysis] = useState<PortfolioAnalysis | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [emailSubmitting, setEmailSubmitting] = useState(false);
-  // Muro de pago: `orderId` identifica el pedido de 9,99€ asociado a este
-  // informe; `unlocked` decide si se muestra el informe completo
-  // (ReportView) o solo la vista previa con las opciones de pago (ver
-  // PaywallStep). Si Stripe no está configurado, nunca se crea un pedido y
-  // `unlocked` se queda en `true` desde el principio (informe gratis, sin
-  // muro) — ver handleEmailSubmit.
+  // `orderId` identifica el informe bloqueado asociado a este análisis;
+  // `unlocked` decide si se muestra el informe completo (ReportView) o solo
+  // la vista previa con la opción de compartir (ver PaywallStep). Si la
+  // base de datos de pedidos no está configurada, nunca se crea un pedido y
+  // `unlocked` se queda en `true` desde el principio (informe sin bloquear)
+  // — ver handleEmailSubmit.
   const [orderId, setOrderId] = useState<string | null>(null);
   const [unlocked, setUnlocked] = useState(true);
 
-  // Al volver de Stripe Checkout (o si el usuario recarga la página con un
-  // pedido en la URL), recuperamos el pedido por su id en vez de repetir
-  // todo el proceso de subida + cuestionario: ver app/api/orders/[id] y
-  // app/api/orders/[id]/verify. El estado de React se pierde por completo
-  // en una redirección a un dominio externo (Stripe), así que esto es
-  // necesario, no solo una comodidad.
+  // Si el usuario vuelve a /analizar?order=... (p.ej. guardó el enlace para
+  // continuar más tarde, o recargó la página), recuperamos el pedido por su
+  // id en vez de repetir todo el proceso de subida + cuestionario — ver
+  // app/api/orders/[id].
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const resumeOrderId = params.get('order');
     if (!resumeOrderId) return;
-    const sessionId = params.get('session_id');
 
     window.history.replaceState(null, '', window.location.pathname);
     setPhase('resuming');
 
     (async () => {
       try {
-        if (sessionId) {
-          const res = await fetch(`/api/orders/${resumeOrderId}/verify`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionId }),
-          });
-          const data = await res.json();
-          if (res.ok && data.unlocked && data.payload) {
-            applyOrderPayload(data.payload as OrderPayload);
-            setOrderId(resumeOrderId);
-            setUnlocked(true);
-            setPhase('report');
-            return;
-          }
-        }
-
-        // El pago no se verificó (p.ej. el usuario canceló en Stripe y
-        // volvió con "atrás"): recuperamos igualmente el pedido para
-        // volver a mostrar el muro de pago con su informe ya generado, sin
-        // obligarle a repetir todo el proceso.
-        const res2 = await fetch(`/api/orders/${resumeOrderId}`);
-        if (!res2.ok) {
+        const res = await fetch(`/api/orders/${resumeOrderId}`);
+        if (!res.ok) {
           setPhase('upload');
           return;
         }
-        const data2 = await res2.json();
-        applyOrderPayload(data2.payload as OrderPayload);
+        const data = await res.json();
+        applyOrderPayload(data.payload as OrderPayload);
         setOrderId(resumeOrderId);
-        setUnlocked(data2.status === 'paid' || data2.status === 'free_shared');
+        setUnlocked(data.status === 'unlocked');
         setPhase('report');
       } catch {
         setPhase('upload');
@@ -181,10 +158,10 @@ export default function AnalizarPage() {
       const newAnalysis = data.analysis as PortfolioAnalysis;
       setAnalysis(newAnalysis);
 
-      // Crea el pedido que decide si el informe se enseña directo (gratis,
-      // p.ej. si Stripe aún no está configurado) o detrás del muro de pago.
+      // Crea el pedido que decide si el informe se enseña directo (p.ej. si
+      // la base de datos no está configurada) o bloqueado hasta compartir.
       // Un fallo aquí no debe dejar al usuario sin nada tras generar su
-      // análisis: ante cualquier problema, se enseña el informe gratis.
+      // análisis: ante cualquier problema, se enseña el informe directo.
       try {
         const orderRes = await fetch('/api/orders', {
           method: 'POST',
@@ -195,6 +172,15 @@ export default function AnalizarPage() {
         if (orderRes.ok && orderData.locked && orderData.orderId) {
           setOrderId(orderData.orderId);
           setUnlocked(false);
+          // Deja constancia de qué pedido es "nuestro" para que, si más
+          // tarde abrimos nuestro propio enlace de referido en este mismo
+          // navegador, no cuente como si lo hubiera abierto otra persona
+          // (ver components/ReferralTracker.tsx).
+          try {
+            window.localStorage.setItem('carteroai-own-order', orderData.orderId);
+          } catch {
+            // No crítico si no está disponible.
+          }
         } else {
           setUnlocked(true);
         }
@@ -224,7 +210,7 @@ export default function AnalizarPage() {
   }
 
   if (phase === 'resuming') {
-    return <StagedProcessing title="Recuperando tu informe…" stages={['Comprobando el pago', 'Preparando tu informe']} stepDurationMs={900} />;
+    return <StagedProcessing title="Recuperando tu informe…" stages={['Comprobando el estado', 'Preparando tu informe']} stepDurationMs={900} />;
   }
 
   if (phase === 'upload') {
