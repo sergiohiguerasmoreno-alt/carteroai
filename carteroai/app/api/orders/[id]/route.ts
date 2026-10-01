@@ -7,10 +7,10 @@ export const maxDuration = 15;
 
 /**
  * Devuelve el estado actual de un pedido (sin desbloquear nada): se usa al
- * volver a /analizar?order=... para recomponer la pantalla — ya sea el
- * muro de pago (si sigue 'pending', p.ej. el usuario canceló el pago en
- * Stripe y pulsó "atrás") o el informe completo (si ya está 'paid' o
- * 'free_shared') — sin que el usuario tenga que repetir todo el proceso de
+ * volver a /analizar?order=... para recomponer la pantalla — ya sea la
+ * pantalla de "comparte para desbloquear" (si sigue 'pending') o el informe
+ * completo (si ya está 'unlocked', porque alguien abrió el enlace de
+ * referido) — sin que el usuario tenga que repetir todo el proceso de
  * subir el PDF y responder el cuestionario.
  */
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
